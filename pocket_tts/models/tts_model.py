@@ -392,10 +392,27 @@ class TTSModel(nn.Module):
             and audio decoding. Generation performance is logged including
             real-time factor (RTF) metrics.
         """
-        text_to_generate, frames_after_eos_guess = prepare_text_prompt(text_to_generate)
-        if frames_after_eos is None:
-            frames_after_eos = frames_after_eos_guess
 
+        # This is a very simplistic way of handling long texts. We could do much better
+        # by using teacher forcing, but it would be a bit slower.
+        # TODO: add the teacher forcing method for long texts where we use the audio of one chunk
+        # as conditioning for the next chunk.
+        chunks = split_into_best_sentences(self.flow_lm.conditioner.tokenizer, text_to_generate)
+
+        for chunk in chunks:
+            text_to_generate, frames_after_eos_guess = prepare_text_prompt(chunk)
+            frames_after_eos_guess += 2
+            yield from self._generate_audio_stream_short_text(
+                model_state=model_state,
+                text_to_generate=chunk,
+                frames_after_eos=frames_after_eos_guess,
+                copy_state=copy_state,
+            )
+
+    @torch.no_grad
+    def _generate_audio_stream_short_text(
+        self, model_state: dict, text_to_generate: str, frames_after_eos: int, copy_state: bool
+    ):
         if copy_state:
             model_state = copy.deepcopy(model_state)
 
@@ -617,6 +634,7 @@ def prepare_text_prompt(text: str) -> tuple[str, int]:
     text = text.strip()
     if text == "":
         raise ValueError("Text prompt cannot be empty")
+    text = text.replace("\n", " ").replace("\r", " ").replace("  ", " ")
     number_of_words = len(text.split())
     if number_of_words <= 4:
         frames_after_eos_guess = 3
@@ -638,3 +656,55 @@ def prepare_text_prompt(text: str) -> tuple[str, int]:
         text = " " * 8 + text
 
     return text, frames_after_eos_guess
+
+
+def split_into_best_sentences(tokenizer, text_to_generate: str) -> list[str]:
+    text_to_generate, _ = prepare_text_prompt(text_to_generate)
+    text_to_generate = text_to_generate.strip()
+    tokens = tokenizer(text_to_generate)
+    list_of_tokens = tokens.tokens[0].tolist()
+
+    _, *end_of_sentence_tokens = tokenizer(".!...?").tokens[0].tolist()
+
+    end_of_sentences_indices = [0]
+    previous_was_end_of_sentence_token = False
+
+    for token_idx, token in enumerate(list_of_tokens):
+        if token in end_of_sentence_tokens:
+            previous_was_end_of_sentence_token = True
+        else:
+            if previous_was_end_of_sentence_token:
+                end_of_sentences_indices.append(token_idx)
+            previous_was_end_of_sentence_token = False
+    end_of_sentences_indices.append(len(list_of_tokens))
+
+    nb_tokens_and_sentences = []
+    for i in range(len(end_of_sentences_indices) - 1):
+        # let's print
+        start = end_of_sentences_indices[i]
+        end = end_of_sentences_indices[i + 1]
+        text = tokenizer.sp.decode(list_of_tokens[start:end])
+        nb_tokens_and_sentences.append((end - start, text))
+
+    max_nb_tokens_in_a_chunk = 50
+    chunks = []
+    current_chunk = ""
+    current_nb_of_tokens_in_chunk = 0
+    for nb_tokens, sentence in nb_tokens_and_sentences:
+        if current_chunk == "":
+            current_chunk = sentence
+            current_nb_of_tokens_in_chunk = nb_tokens
+            continue
+
+        if current_nb_of_tokens_in_chunk + nb_tokens > max_nb_tokens_in_a_chunk:
+            chunks.append(current_chunk.strip())
+            current_chunk = sentence
+            current_nb_of_tokens_in_chunk = nb_tokens
+        else:
+            current_chunk += " " + sentence
+            current_nb_of_tokens_in_chunk += nb_tokens
+
+    if current_chunk != "":
+        chunks.append(current_chunk.strip())
+
+    return chunks
