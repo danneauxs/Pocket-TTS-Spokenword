@@ -11,6 +11,7 @@ pocket-tts is a CPU-based text-to-speech (TTS) model. The project uses a flow-ba
 - **MimiModel**: Neural audio codec (from the `moshi` package) that compresses/decompresses audio to/from latent representations
 - **Conditioners**: Text processing via SentencePiece tokenizer and lookup table embeddings
 - **Streaming Architecture**: The entire pipeline supports streaming generation via stateful modules
+- **Web API**: FastAPI-based server for HTTP API access with web interface
 
 ## Common Commands
 
@@ -42,11 +43,14 @@ This is a pure Python package with Rust extensions in `training/rust_exts/audio_
 
 ## Code Structure
 
-### Main Package (`pocket_tts
+### Main Package (`pocket_tts/`)
 
 **Entry Points:**
-- `main.py`: CLI implementation with Typer (two commands: `generate` and `serve`)
+- `main.py`: CLI implementation with Typer (commands: `generate`, `serve`, and web interface)
 - `__init__.py`: Public API exports only `TTSModel`
+- `__main__.py`: Python module entry point
+- `default_parameters.py`: Default configuration values for generation parameters
+- `static/`: Web interface files (HTML for server UI)
 
 **Core Models (`models/`):**
 - `tts_model.py`: Main `TTSModel` class - orchestrates the entire TTS pipeline
@@ -62,7 +66,7 @@ This is a pure Python package with Rust extensions in `training/rust_exts/audio_
 - `rope.py`: Rotary Position Embeddings
 - `mlp.py`: `SimpleMLPAdaLN` (AdaLN-conditioned MLP for flow prediction)
 - `conv.py`: Convolution utilities
-- `seanet.py`: SEANet encoder/decoder (imported from moshi)
+- `seanet.py`: SEANet encoder/decoder (copied from moshi)
 
 **Conditioners (`conditioners/`):**
 - `text.py`: `LUTConditioner` - SentencePiece tokenizer + embedding lookup table for text
@@ -126,7 +130,7 @@ The `download_if_necessary()` utility handles `hf://` URLs and caches locally.
 ## Common Gotchas
 
 1. **PyTorch Version**: Requires PyTorch 2.5+. Version 2.4.0 produces incorrect audio.
-2. **Python Version**: Supports 3.11, 3.12, 3.13 only.
+2. **Python Version**: Supports Python 3.10 through 3.14 (>= 3.10,<3.15).
 3. **uv Python Preference**: Set to "only-managed" in pyproject.toml because system Python may lack headers.
-4. **Moshi Dependency**: The package depends on `moshi` for the MimiModel audio codec.
-5. **CPU-Only PyTorch**: Uses PyTorch CPU index from `download.pytorch.org/whl/cpu` in uv config.
+4. **CPU-Only PyTorch**: Uses PyTorch CPU index from `download.pytorch.org/whl/cpu` in uv config.
+5. **Web Dependencies**: FastAPI and Uvicorn are included for server functionality.
