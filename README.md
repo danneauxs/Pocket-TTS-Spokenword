@@ -14,7 +14,6 @@ An enhanced version of Kyutai's Pocket TTS that transforms plain text into emoti
 - **Audiobook Generation**: Complete pipeline for book-to-audio conversion
 - **Voice Cloning**: Custom voice support with emotion preservation
 - **GUI Interface**: User-friendly desktop application for easy audiobook creation
-- **Batch Processing**: Convert entire books or document collections
 
 Supports Python 3.10, 3.11, 3.12, 3.13 and 3.14. Requires PyTorch 2.5+. CPU-only operation.
 
@@ -26,17 +25,12 @@ Supports Python 3.10, 3.11, 3.12, 3.13 and 3.14. Requires PyTorch 2.5+. CPU-only
 * **GUI Application**: Desktop interface for easy audiobook creation
 * Runs on CPU only (no GPU required)
 * Small model size, 100M parameters + emotion analysis
-* Audio streaming with emotion-aware parameter control
-* Low latency, ~200ms to first audio chunk
 * Faster than real-time, ~4-6x speed on modern CPUs
-* Uses 1-2 CPU cores optimally
-* Python API, CLI, and GUI interfaces
+* Uses 1-4 CPU cores optimally
 * Voice cloning with emotion preservation
 * English text support
-* Resume capability for long-form content
-* Batch processing for multiple files
 
-## Trying it from the website, without installing anything
+## Trying it from the website, without installing anything (origanl model interface NOT this GUI program)
 
 Navigate to the https://kyutai.org/tts to try basic TTS functionality directly in your browser. You can input text, select different voices, and generate speech without any installation.
 
@@ -62,7 +56,9 @@ This project uses uv, an extremely fast Python package manager.
 instasll.sh
 ```
 
-**This will download all necessary files.  You will probably need to go to the [kyutai/pocket-tts · Hugging Face](https://huggingface.co/kyutai/pocket-tts) page to accept TOS to download the model.  I suggest going there FIRST before running insta..
+**This will download all necessary files.  You will probably need to go to the [kyutai/pocket-tts · Hugging Face](https://huggingface.co/kyutai/pocket-tts) page to accept TOS to download the model.  I suggest going there FIRST before running install.  FYI on first conversion there will be a delay as the model is downloaded.  This will take time depending on connection spped.
+
+Note:  if using Windows with WSL you might need to install C++ runtime etc.  Use AI to help you if needed.
 
 ### Desktop GUI Application
 
@@ -74,12 +70,10 @@ launch.sh
 
 **Features:**
 
-- Drag-and-drop text file selection
-- Real-time emotion preview
 - Customizable chunking and emotion settings
-- Progress tracking with resume capability
+- Progress tracking
 - Voice cloning from audio prompts
-- Batch processing of multiple files
+- Individual chunk regeneration for chunk correction
 
 ### Smart Text Processing
 
