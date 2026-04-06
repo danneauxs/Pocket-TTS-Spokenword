@@ -639,14 +639,6 @@ def prepare_text_prompt(text: str) -> tuple[str, int]:
     text = text.strip()
     if text == "":
         raise ValueError("Text prompt cannot be empty")
-
-    # Normalize Unicode punctuation to ASCII (handles smart quotes, dashes, etc.)
-    try:
-        from pocket_tts.preprocessing.text_normalizer import normalize_unicode_punctuation
-        text = normalize_unicode_punctuation(text)
-    except ImportError:
-        pass
-
     text = text.replace("\n", " ").replace("\r", " ").replace("  ", " ")
     number_of_words = len(text.split())
     if number_of_words <= 4:

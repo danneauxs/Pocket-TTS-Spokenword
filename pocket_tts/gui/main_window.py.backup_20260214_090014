@@ -1,0 +1,948 @@
+"""
+Audiobook Generator GUI Application
+Main Qt-based interface for text-to-speech audiobook generation.
+"""
+
+import sys
+import os
+import json
+import logging
+from pathlib import Path
+from typing import Dict, Any
+
+from qtpy.QtWidgets import (
+    QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout,
+    QPushButton, QLabel, QProgressBar, QFileDialog, QComboBox,
+    QGroupBox, QFormLayout, QSpinBox, QDoubleSpinBox, QTextEdit,
+    QCheckBox, QMessageBox, QSizePolicy, QTabWidget
+)
+from qtpy.QtCore import Qt, QThread, Signal
+from qtpy.QtGui import QPalette, QColor, QPixmap
+
+from pocket_tts.preprocessing.structure_detector import StructureDetector
+from pocket_tts.preprocessing.chunker import SmartChunker
+from pocket_tts.preprocessing.emotion_analyzer import EmotionAnalyzer
+from pocket_tts.preprocessing.parameter_mapper import ParameterMapper
+from pocket_tts.preprocessing.schema import BoundaryType
+from pocket_tts.audiobook.generator import AudiobookGenerator as AudiobookGeneratorEngine
+from pocket_tts.config import ConfigManager
+
+
+class AudiobookGenerator(QMainWindow):
+    """Main GUI application for audiobook generation."""
+
+    # Signals for thread communication
+    generation_progress = Signal(dict)     # progress updates
+    generation_finished = Signal(str)      # output file path
+
+    # GUI settings file location
+    SETTINGS_FILE = Path.home() / ".pocket_tts_gui_config.json"
+
+    def __init__(self):
+        super().__init__()
+        self.logger = logging.getLogger(__name__)
+        self.config = ConfigManager.load_config('pocket_tts/config/default_config.yaml')
+        self.current_structure = None
+        self.current_chunks = None
+
+        # Load saved directory settings or use defaults
+        settings = self._load_gui_settings()
+        self.last_text_dir = settings.get('last_text_dir', str(Path.home()))
+        self.last_voice_dir = settings.get('last_voice_dir', str(Path.home()))
+
+        self.init_ui()
+        self.setup_connections()
+
+    def _load_gui_settings(self) -> Dict[str, Any]:
+        """Load GUI settings from persistent storage."""
+        try:
+            if self.SETTINGS_FILE.exists():
+                with open(self.SETTINGS_FILE, 'r') as f:
+                    return json.load(f)
+        except Exception as e:
+            print(f"Warning: Could not load GUI settings: {e}")
+        return {}
+
+    def _save_gui_settings(self):
+        """Save GUI settings to persistent storage."""
+        try:
+            settings = {
+                'last_text_dir': self.last_text_dir,
+                'last_voice_dir': self.last_voice_dir
+            }
+            with open(self.SETTINGS_FILE, 'w') as f:
+                json.dump(settings, f, indent=2)
+        except Exception as e:
+            print(f"Warning: Could not save GUI settings: {e}")
+
+    def init_ui(self):
+        """Initialize the user interface."""
+        self.setWindowTitle("Audiobook Generator")
+        self.setGeometry(100, 100, 1200, 800)
+
+        # Create central widget with tabs
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+
+        # Main layout
+        layout = QVBoxLayout(central_widget)
+
+        # Create tab widget
+        self.tab_widget = QTabWidget()
+        layout.addWidget(self.tab_widget)
+
+        # Create Generate tab (existing UI)
+        self.create_generate_tab()
+
+        # Create Regenerate tab (new UI)
+        self.create_regenerate_tab()
+
+        # Status bar
+        self.statusBar().showMessage("Ready")
+
+    def create_generate_tab(self):
+        """Create the Generate Audiobook tab (existing UI)."""
+        generate_widget = QWidget()
+        self.tab_widget.addTab(generate_widget, "Generate Audiobook")
+
+        # Main layout for generate tab
+        layout = QVBoxLayout(generate_widget)
+
+        # Create header with file selectors and image
+        self.create_header_section(layout)
+
+        # Create sections
+        self.create_parameters_section(layout)
+        self.create_progress_section(layout)
+        self.create_results_section(layout)
+
+    def create_regenerate_tab(self):
+        """Create the Regenerate Chunks tab (new UI)."""
+        from .regenerate_tab import RegenerateTab
+        regenerate_tab = RegenerateTab()
+        self.tab_widget.addTab(regenerate_tab, "Regenerate Chunks")
+
+    def create_header_section(self, parent_layout):
+        """Create header section with file selectors and image."""
+        # Main horizontal layout for header
+        header_layout = QHBoxLayout()
+
+        # Left side: File selection group
+        file_group = QGroupBox("File Selection")
+        file_layout = QVBoxLayout(file_group)
+
+        # Text file selection - label on left, selector and button on right
+        text_file_layout = QHBoxLayout()
+        text_file_layout.setSpacing(5)  # Reduce spacing between widgets
+        text_label = QLabel("Text File:")
+        text_label.setFixedWidth(60)  # Fixed width for label alignment
+        text_file_layout.addWidget(text_label)
+        self.text_file_path = QLabel("No file selected")
+        self.text_file_path.setStyleSheet("border: 1px solid #ccc; padding: 5px;")
+        text_file_layout.addWidget(self.text_file_path)
+        self.browse_text_btn = QPushButton("Browse...")
+        self.browse_text_btn.clicked.connect(self.browse_text_file)
+        text_file_layout.addWidget(self.browse_text_btn)
+
+        # Voice selection - label on left, selector and button on right
+        voice_file_layout = QHBoxLayout()
+        voice_file_layout.setSpacing(5)  # Reduce spacing between widgets
+        voice_label = QLabel("Voice:")
+        voice_label.setFixedWidth(60)  # Fixed width for label alignment
+        voice_file_layout.addWidget(voice_label)
+        self.voice_combo = QComboBox()
+        self.voice_combo.addItem("alba (default)")
+        self.voice_combo.addItem("marius")
+        self.voice_combo.addItem("javert")
+        self.voice_combo.addItem("jean")
+        self.voice_combo.addItem("fantine")
+        self.voice_combo.addItem("cosette")
+        self.voice_combo.addItem("eponine")
+        self.voice_combo.addItem("azelma")
+        self.voice_combo.addItem("Custom WAV...")
+        voice_file_layout.addWidget(self.voice_combo)
+        self.browse_voice_btn = QPushButton("Browse...")
+        self.browse_voice_btn.clicked.connect(self.browse_voice_file)
+        voice_file_layout.addWidget(self.browse_voice_btn)
+
+        # Add both selectors to file group
+        file_layout.addLayout(text_file_layout)
+        file_layout.addLayout(voice_file_layout)
+
+        # Right side: Image with left margin buffer
+        image_label = QLabel()
+        image_path = Path(__file__).parent.parent.parent / "docs" / "icon.png"
+
+        if image_path.exists():
+            pixmap = QPixmap(str(image_path))
+            # Scale to 300x300 while maintaining aspect ratio
+            scaled_pixmap = pixmap.scaled(300, 300, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            image_label.setPixmap(scaled_pixmap)
+            image_label.setFixedSize(300, 300)
+            image_label.setScaledContents(False)
+            image_label.setAlignment(Qt.AlignCenter)
+        else:
+            # Fallback if image not found
+            image_label.setText("Image\nNot Found")
+            image_label.setFixedSize(300, 300)
+            image_label.setAlignment(Qt.AlignCenter)
+            image_label.setStyleSheet("border: 1px solid #ccc;")
+
+        # Add to header layout with spacing (1 inch = ~96 pixels at standard DPI)
+        header_layout.addWidget(file_group)
+        header_layout.addSpacing(96)  # Add ~1 inch buffer space between file group and image
+        header_layout.addWidget(image_label)
+
+        parent_layout.addLayout(header_layout)
+
+    def create_parameters_section(self, parent_layout):
+        """Create collapsible parameters section."""
+        # Container for checkbox and parameters
+        container = QWidget()
+        container_layout = QVBoxLayout(container)
+        container_layout.setContentsMargins(0, 0, 0, 0)
+
+        # Checkbox to toggle parameters visibility
+        self.params_checkbox = QCheckBox("Show Parameters")
+        self.params_checkbox.setChecked(False)  # Start unchecked (hidden)
+        container_layout.addWidget(self.params_checkbox)
+
+        # Parameters group (not checkable)
+        self.params_group = QGroupBox("Parameters")
+        # Use horizontal layout for 7-column structure
+        layout = QHBoxLayout(self.params_group)
+
+        # Column 0 (NEW): TTS Core Parameters
+        tts_core_group = self.create_collapsible_group("TTS Core Parameters")
+        tts_core_layout = QFormLayout(tts_core_group)
+
+        # Temperature spinner
+        self.temperature_spin = QDoubleSpinBox()
+        self.temperature_spin.setRange(0.0, 1.5)
+        self.temperature_spin.setSingleStep(0.05)
+        self.temperature_spin.setDecimals(2)
+        tts_core_value = self.config.tts_core.get('temperature', 0.7) if hasattr(self.config, 'tts_core') else 0.7
+        self.temperature_spin.setValue(tts_core_value)
+        tts_core_layout.addRow("Temperature:", self.temperature_spin)
+
+        # EOS Threshold spinner
+        self.eos_threshold_spin = QDoubleSpinBox()
+        self.eos_threshold_spin.setRange(-10.0, 0.0)
+        self.eos_threshold_spin.setSingleStep(0.5)
+        self.eos_threshold_spin.setDecimals(1)
+        eos_value = self.config.tts_core.get('eos_threshold', -4.0) if hasattr(self.config, 'tts_core') else -4.0
+        self.eos_threshold_spin.setValue(eos_value)
+        tts_core_layout.addRow("EOS Threshold:", self.eos_threshold_spin)
+
+        # Frames After EOS spinner
+        self.frames_after_eos_spin = QSpinBox()
+        self.frames_after_eos_spin.setRange(0, 10)
+        frames_value = self.config.tts_core.get('frames_after_eos', 2) if hasattr(self.config, 'tts_core') else 2
+        self.frames_after_eos_spin.setValue(frames_value)
+        tts_core_layout.addRow("Frames After EOS:", self.frames_after_eos_spin)
+
+        # Column 1: Chunking parameters
+        chunking_group = self.create_collapsible_group("Chunking Settings")
+        chunking_layout = QFormLayout(chunking_group)
+
+        self.chunking_mode_combo = QComboBox()
+        self.chunking_mode_combo.addItem("sentence")
+        self.chunking_mode_combo.addItem("paragraph")
+        chunking_layout.addRow("Mode:", self.chunking_mode_combo)
+
+        self.min_words_spin = QSpinBox()
+        self.min_words_spin.setRange(1, 20)
+        chunking_layout.addRow("Min Words:", self.min_words_spin)
+
+        self.max_words_spin = QSpinBox()
+        self.max_words_spin.setRange(20, 200)
+        chunking_layout.addRow("Max Words:", self.max_words_spin)
+
+        # Set default values from config
+        self.chunking_mode_combo.setCurrentText(self.config.chunking['mode'])
+        self.min_words_spin.setValue(self.config.chunking['min_words'])
+        self.max_words_spin.setValue(self.config.chunking['max_words'])
+
+        # Column 2: Post-Processing Pauses Group
+        pause_group = self.create_collapsible_group("Pause Durations (ms)")
+        pause_layout = QFormLayout(pause_group)
+
+        self.sentence_pause_spin = QSpinBox()
+        self.sentence_pause_spin.setRange(0, 2000)
+        self.sentence_pause_spin.setSingleStep(50)
+        self.sentence_pause_spin.setValue(self.config.pauses['base_durations']['sentence_end'])
+        pause_layout.addRow("Sentence End:", self.sentence_pause_spin)
+
+        self.paragraph_pause_spin = QSpinBox()
+        self.paragraph_pause_spin.setRange(0, 5000)
+        self.paragraph_pause_spin.setSingleStep(100)
+        self.paragraph_pause_spin.setValue(self.config.pauses['base_durations']['paragraph_break'])
+        pause_layout.addRow("Paragraph Break:", self.paragraph_pause_spin)
+
+        self.chapter_pause_spin = QSpinBox()
+        self.chapter_pause_spin.setRange(0, 10000)
+        self.chapter_pause_spin.setSingleStep(500)
+        self.chapter_pause_spin.setValue(self.config.pauses['base_durations']['chapter_start'])
+        pause_layout.addRow("Chapter Start:", self.chapter_pause_spin)
+
+        # Column 3: Quality parameters
+        quality_group = self.create_collapsible_group("Quality Settings")
+        quality_layout = QFormLayout(quality_group)
+
+        self.lsd_steps_spin = QSpinBox()
+        self.lsd_steps_spin.setRange(1, 30)
+        self.lsd_steps_spin.setValue(self.config.quality.get('lsd_steps', 2))
+        quality_layout.addRow("LSD Steps:", self.lsd_steps_spin)
+        lsd_note = QLabel("(5-10 optimal for quality vs speed)")
+        lsd_note.setStyleSheet("font-size: 10px; color: gray;")
+        quality_layout.addRow("", lsd_note)
+
+        self.speed_variation_check = QCheckBox("Enable speed variation")
+        self.speed_variation_check.setChecked(True)
+        quality_layout.addRow("", self.speed_variation_check)
+
+        # Column 4: M4B Options
+        m4b_group = self.create_collapsible_group("M4B Output Options")
+        m4b_layout = QFormLayout(m4b_group)
+
+        self.m4b_enabled_check = QCheckBox("Convert to M4B")
+        self.m4b_enabled_check.setChecked(self.config.m4b.get('enabled', False))
+        m4b_layout.addRow(self.m4b_enabled_check)
+
+        self.m4b_norm_combo = QComboBox()
+        self.m4b_norm_combo.addItems(["none", "peak", "loudness", "simple"])
+        self.m4b_norm_combo.setCurrentText(self.config.m4b.get('normalization_type', 'peak'))
+        m4b_layout.addRow("Normalization:", self.m4b_norm_combo)
+
+        # Column 5: Performance Settings
+        performance_group = self.create_collapsible_group("Performance Settings")
+        performance_layout = QFormLayout(performance_group)
+
+        # Calculate CPU-based worker limit using physical cores
+        import psutil
+        physical_cores = psutil.cpu_count(logical=False)
+        logical_cpus = psutil.cpu_count(logical=True)
+
+        if physical_cores:
+            cpu_based_limit = max(1, physical_cores - 1)
+            tooltip_text = (f"Temporary override (restart to reset to config). "
+                           f"Physical cores: {physical_cores}, Logical CPUs: {logical_cpus}. "
+                           f"Limited to {cpu_based_limit} workers for optimal performance.")
+        else:
+            cpu_count = os.cpu_count() or 4
+            cpu_based_limit = max(1, cpu_count - 5)
+            tooltip_text = (f"Temporary override (restart to reset to config). "
+                           f"psutil not available. CPU count: {cpu_count}. "
+                           f"Limited to {cpu_based_limit} workers.")
+
+        print(f"DEBUG: Max workers spinner range: 1 to {cpu_based_limit} (physical_cores={physical_cores}, logical_cpus={logical_cpus})")
+
+        self.max_workers_spin = QSpinBox()
+        self.max_workers_spin.setRange(1, cpu_based_limit)  # Limited by CPU formula
+        self.max_workers_spin.setValue(self.config.parallel.get('max_workers', cpu_based_limit))
+        self.max_workers_spin.setToolTip(tooltip_text)
+        performance_layout.addRow("Max Workers:", self.max_workers_spin)
+
+        # Store original config value for reset reference
+        self.original_max_workers = self.config.parallel.get('max_workers', 4)
+
+        # Initialize max workers override
+        self.max_workers_override = None
+
+        # Connect spinner to update override
+        self.max_workers_spin.valueChanged.connect(self.on_max_workers_changed)
+
+        # Column 6: ASR Quality Control
+        asr_group = self.create_collapsible_group("ASR Quality Control")
+        asr_layout = QFormLayout(asr_group)
+
+        self.asr_enabled_check = QCheckBox("Enable ASR Quality Control")
+        asr_enabled = self.config.asr_quality_control.get('enabled', False) if hasattr(self.config, 'asr_quality_control') else False
+        self.asr_enabled_check.setChecked(asr_enabled)
+        asr_layout.addRow(self.asr_enabled_check)
+
+        self.asr_threshold_spin = QDoubleSpinBox()
+        self.asr_threshold_spin.setRange(0.0, 1.0)
+        self.asr_threshold_spin.setSingleStep(0.05)
+        self.asr_threshold_spin.setValue(self.config.asr_quality_control.get('threshold', 0.85) if hasattr(self.config, 'asr_quality_control') else 0.85)
+        asr_layout.addRow("Threshold:", self.asr_threshold_spin)
+
+        self.asr_max_retries_spin = QSpinBox()
+        self.asr_max_retries_spin.setRange(1, 10)
+        self.asr_max_retries_spin.setValue(self.config.asr_quality_control.get('max_retries', 3) if hasattr(self.config, 'asr_quality_control') else 3)
+        asr_layout.addRow("Max Retries:", self.asr_max_retries_spin)
+
+        self.asr_temp_decrement_spin = QDoubleSpinBox()
+        self.asr_temp_decrement_spin.setRange(0.01, 0.5)
+        self.asr_temp_decrement_spin.setSingleStep(0.01)
+        self.asr_temp_decrement_spin.setValue(self.config.asr_quality_control.get('temp_decrement', 0.1) if hasattr(self.config, 'asr_quality_control') else 0.1)
+        asr_layout.addRow("Temp Decrement:", self.asr_temp_decrement_spin)
+
+        # Add subgroups to main parameters layout (7 columns, TTS core first)
+        layout.addWidget(tts_core_group)
+        layout.addWidget(chunking_group)
+        layout.addWidget(pause_group)
+        layout.addWidget(quality_group)
+        layout.addWidget(m4b_group)
+        layout.addWidget(performance_group)
+        layout.addWidget(asr_group)
+
+        # Add parameters group to container and set initially hidden
+        container_layout.addWidget(self.params_group)
+        self.params_group.setVisible(False)  # Start hidden
+
+        parent_layout.addWidget(container)
+
+    def create_collapsible_group(self, title: str) -> QGroupBox:
+        """Create a non-collapsible group box for parameter sections."""
+        group = QGroupBox(title)
+        # Not checkable - visibility controlled by parent params_group
+        return group
+
+    def create_progress_section(self, parent_layout):
+        """Create progress section."""
+        group = QGroupBox("Generation Progress")
+        layout = QVBoxLayout(group)
+
+        # Progress info
+        progress_layout = QHBoxLayout()
+
+        self.chunk_progress_label = QLabel("Chunks: 0/0")
+        self.chunk_progress_label.setStyleSheet("color: #00FF00;")
+        progress_layout.addWidget(self.chunk_progress_label)
+
+        self.time_elapsed_label = QLabel("Elapsed: 0:00")
+        self.time_elapsed_label.setStyleSheet("color: #00FF00;")
+        progress_layout.addWidget(self.time_elapsed_label)
+
+        self.eta_label = QLabel("ETA: --:--")
+        self.eta_label.setStyleSheet("color: #00FF00;")
+        progress_layout.addWidget(self.eta_label)
+
+        layout.addLayout(progress_layout)
+
+        # Progress bar
+        self.generation_progress_bar = QProgressBar()
+        self.generation_progress_bar.setRange(0, 100)
+        layout.addWidget(self.generation_progress_bar)
+
+        # Control buttons
+        button_layout = QHBoxLayout()
+        self.start_btn = QPushButton("Generate Audiobook")
+        self.start_btn.clicked.connect(self.start_generation)
+        self.start_btn.setEnabled(False)
+        button_layout.addWidget(self.start_btn)
+
+        self.stop_btn = QPushButton("Stop")
+        self.stop_btn.clicked.connect(self.stop_generation)
+        self.stop_btn.setEnabled(False)
+        button_layout.addWidget(self.stop_btn)
+
+        layout.addLayout(button_layout)
+
+        parent_layout.addWidget(group)
+
+    def create_results_section(self, parent_layout):
+        """Create results section."""
+        group = QGroupBox("Results")
+        layout = QVBoxLayout(group)
+
+        self.results_text = QTextEdit()
+        self.results_text.setReadOnly(True)
+        # Default state: Expanding (since parameters are hidden by default)
+        self.results_text.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        # Set bright green text color
+        self.results_text.setStyleSheet("QTextEdit { color: #00FF00; }")
+        layout.addWidget(self.results_text)
+
+        parent_layout.addWidget(group)
+
+    def setup_connections(self):
+        """Setup signal connections."""
+        self.generation_progress.connect(self.on_generation_progress)
+        self.generation_finished.connect(self.on_generation_finished)
+        self.params_checkbox.stateChanged.connect(self.on_parameters_toggled)
+
+    def on_parameters_toggled(self, state):
+        """Handle parameters section show/hide."""
+        # Explicitly control visibility of parameters group
+        is_checked = (state == 2)  # Qt.Checked = 2
+        self.params_group.setVisible(is_checked)
+
+        if is_checked:
+            # Parameters shown -> Shrink results
+            self.results_text.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+            self.results_text.setMaximumHeight(100)
+        else:
+            # Parameters hidden -> Grow results
+            self.results_text.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+            self.results_text.setMaximumHeight(16777215)
+
+        # Resize window to fit content
+        self.adjustSize()
+
+    def on_max_workers_changed(self, value):
+        """Handle max workers spinner change."""
+        # Store override value (None means use config default)
+        if value != self.original_max_workers:
+            self.max_workers_override = value
+            print(f"DEBUG: GUI max_workers_override set to {value} (config default: {self.original_max_workers})")
+        else:
+            self.max_workers_override = None
+            print(f"DEBUG: GUI max_workers_override reset to None (config default: {self.original_max_workers})")
+
+    def browse_text_file(self):
+        """Browse for text file."""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Select Text File", self.last_text_dir, "Text Files (*.txt);;All Files (*)"
+        )
+        if file_path:
+            self.last_text_dir = str(Path(file_path).parent)  # Remember directory
+            self._save_gui_settings()  # Save settings immediately
+            self.text_file_path.setText(file_path)
+            self.results_text.append(f"📄 Selected: {os.path.basename(file_path)}")
+            self.results_text.append("Ready to generate audiobook")
+            self.start_btn.setEnabled(True)
+
+    def browse_voice_file(self):
+        """Browse for voice file."""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Select Voice File", self.last_voice_dir, "Audio Files (*.wav *.mp3 *.m4a *.flac);;WAV Files (*.wav);;All Files (*)"
+        )
+        if file_path:
+            self.last_voice_dir = str(Path(file_path).parent)  # Remember directory
+            self._save_gui_settings()  # Save settings immediately
+            # Add to combo box if not already there
+            voice_name = f"Custom: {Path(file_path).name}"
+            if self.voice_combo.findText(voice_name) == -1:
+                # Store display name and full path as item data
+                self.voice_combo.addItem(voice_name, file_path)
+            else:
+                # Update the data for existing item
+                index = self.voice_combo.findText(voice_name)
+                self.voice_combo.setItemData(index, file_path)
+            self.voice_combo.setCurrentText(voice_name)
+
+    def start_generation(self):
+        """Start audiobook generation."""
+        # Prevent multiple concurrent generations
+        if (hasattr(self, 'generation_thread') and
+            self.generation_thread is not None and
+            isinstance(self.generation_thread, GenerationThread) and
+            hasattr(self.generation_thread, 'isRunning') and
+            self.generation_thread.isRunning()):
+            self.results_text.append("⚠️ Generation already in progress")
+            return
+
+        # Get text file
+        text_file = self.text_file_path.text()
+        if text_file == "No file selected" or not os.path.exists(text_file):
+            self.results_text.append("❌ Error: Please select a valid text file")
+            return
+
+        # Get GUI pause values for preprocessing
+        sentence_pause_ms = self.sentence_pause_spin.value()
+        paragraph_pause_ms = self.paragraph_pause_spin.value()
+        chapter_pause_ms = self.chapter_pause_spin.value()
+
+        # Automatically preprocess text
+        self.results_text.append("🔍 Analyzing text...")
+        success = self._preprocess_text(text_file, sentence_pause_ms, paragraph_pause_ms, chapter_pause_ms)
+        if not success:
+            return  # Error already displayed in _preprocess_text
+
+        # Get voice selection
+        voice_selection = self.voice_combo.currentText()
+        if voice_selection.startswith("Custom:"):
+            # Retrieve full path from combo box item data
+            current_index = self.voice_combo.currentIndex()
+            voice_path = self.voice_combo.itemData(current_index)
+            if voice_path is None:
+                # Fallback for legacy items without data (shouldn't happen)
+                voice_path = voice_selection.replace("Custom: ", "")
+            if not os.path.exists(voice_path):
+                self.results_text.append(f"❌ Error: Voice file not found: {voice_path}")
+                return
+        else:
+            voice_path = voice_selection.split(" ")[0]  # Get first word (voice name)
+
+        # Generate automatic output path based on input filename and voice
+        from pocket_tts.audiobook.generator import AudiobookGenerator
+        dataset_paths = AudiobookGenerator.generate_output_paths(text_file, voice_path)
+        output_path = str(dataset_paths['final_audio_path'])
+
+        # Display output directory and filename to user
+        self.results_text.append(f"📁 Output directory: {dataset_paths['output_dir']}")
+        self.results_text.append(f"🎵 Final audio: {Path(output_path).name}")
+
+        # Helper function to convert milliseconds to frames for TTS engine
+        ms_to_frames = lambda ms: int((ms / 1000) * 24000)
+
+        # Collect parameters from GUI (convert ms to frames for generation)
+        params = {
+            'voice_path': voice_path,
+            'output_path': output_path,
+            'source_file': text_file,  # Add source file path for JSON metadata
+            'chunking_mode': self.chunking_mode_combo.currentText(),
+            'min_words': self.min_words_spin.value(),
+            'max_words': self.max_words_spin.value(),
+            'sentence_pause': ms_to_frames(self.sentence_pause_spin.value()),
+            'paragraph_pause': ms_to_frames(self.paragraph_pause_spin.value()),
+            'chapter_pause': ms_to_frames(self.chapter_pause_spin.value()),
+            'lsd_steps': self.lsd_steps_spin.value(),
+            'speed_variation': self.speed_variation_check.isChecked()
+        }
+
+        # Update config with M4B settings
+        if not hasattr(self.config, 'm4b'):
+            self.config.m4b = {}
+
+        self.config.m4b['enabled'] = self.m4b_enabled_check.isChecked()
+        self.config.m4b['normalization_type'] = self.m4b_norm_combo.currentText()
+        # Ensure other defaults are present
+        if 'speed' not in self.config.m4b: self.config.m4b['speed'] = 1.0
+        if 'sample_rate' not in self.config.m4b: self.config.m4b['sample_rate'] = 24000
+        if 'target_db' not in self.config.m4b: self.config.m4b['target_db'] = -1.5
+
+        # Update config with ASR settings
+        if not hasattr(self.config, 'asr_quality_control'):
+            self.config.asr_quality_control = {}
+
+        self.config.asr_quality_control['enabled'] = self.asr_enabled_check.isChecked()
+        self.config.asr_quality_control['threshold'] = self.asr_threshold_spin.value()
+        self.config.asr_quality_control['max_retries'] = self.asr_max_retries_spin.value()
+        self.config.asr_quality_control['temp_decrement'] = self.asr_temp_decrement_spin.value()
+
+        # Update UI
+        self.start_btn.setEnabled(False)
+        self.stop_btn.setEnabled(True)
+        self.generation_progress_bar.setValue(0)
+        self.results_text.append("\n▶️ Starting generation...")
+        self.results_text.append(f"Output: {output_path}")
+
+        # Disable start button during generation
+        self.start_btn.setEnabled(False)
+
+        # Start generation thread
+        self.generation_thread = GenerationThread(self.current_chunks, params, self.config, self.max_workers_override)
+        self.generation_thread.progress.connect(self.on_generation_progress)
+        self.generation_thread.finished.connect(self.on_generation_finished)
+        self.generation_thread.start()
+
+    def _preprocess_text(self, text_file: str, sentence_pause_ms: int, paragraph_pause_ms: int, chapter_pause_ms: int) -> bool:
+        """Preprocess text file automatically during generation."""
+        try:
+            # Read text file
+            with open(text_file, 'r', encoding='utf-8') as f:
+                text = f.read()
+
+            # Initialize components
+            detector = StructureDetector()
+            chunker = SmartChunker(
+                mode=self.chunking_mode_combo.currentText(),
+                min_words=self.config.chunking['min_words'],
+                max_words=self.config.chunking['max_words'],
+                respect_boundaries=self.config.chunking.get('respect_boundaries', True)
+            )
+            analyzer = EmotionAnalyzer()
+
+            # Get GUI pause values (ms) directly
+            boundary_pauses = {
+                BoundaryType.SENTENCE_END: self.sentence_pause_spin.value(),
+                BoundaryType.PARAGRAPH_BREAK: self.paragraph_pause_spin.value(),
+                BoundaryType.CHAPTER_START: self.chapter_pause_spin.value()
+            }
+
+            # Initialize mapper with custom boundary values and base TTS parameters
+            mapper = ParameterMapper(
+                config=self.config,
+                boundary_pauses=boundary_pauses,
+                base_temperature=self.temperature_spin.value(),
+                base_eos_threshold=self.eos_threshold_spin.value(),
+                base_frames_after_eos=self.frames_after_eos_spin.value()
+            )
+
+            # Process text
+            self.results_text.append("📖 Detecting structure...")
+            structure = detector.analyze(text)
+
+            self.results_text.append("✂️ Creating chunks...")
+            chunks = chunker.chunk(structure)
+
+            # Analyze emotions
+            if chunks:
+                self.results_text.append("🧠 Analyzing emotions...")
+                texts_to_analyze = [chunk.text for chunk in chunks]
+                emotion_results = analyzer.analyze_batch(texts_to_analyze)
+
+                # Map emotions to parameters
+                self.results_text.append("⚙️ Mapping parameters...")
+                for chunk, emotion in zip(chunks, emotion_results):
+                    params = mapper.calculate_params(
+                        emotion=emotion['emotion'],
+                        punctuation=chunk.punctuation,
+                        boundary_type=chunk.boundary_type,
+                        word_count=chunk.word_count
+                    )
+
+                    # Get silence duration (ms) -> convert to seconds for storage
+                    silence_duration_ms = mapper.calculate_silence_duration_ms(chunk.boundary_type)
+                    silence_duration_sec = silence_duration_ms / 1000.0
+
+                    # Convert TTSParams object to dictionary
+                    chunk.tts_params = {
+                        'temperature': params.temperature,
+                        'frames_after_eos': params.frames_after_eos,
+                        'eos_threshold': params.eos_threshold,
+                        'lsd_decode_steps': params.lsd_decode_steps
+                    }
+                    chunk.emotion = emotion['emotion']
+                    chunk.emotion_scores = emotion['scores']
+                    chunk.emotion_confidence = emotion['confidence']
+
+                    # Store post-processing parameters
+                    chunk.post_process = {
+                        'silence_duration': silence_duration_sec
+                    }
+
+            # Store results
+            self.current_structure = structure
+            self.current_chunks = chunks
+
+            chunk_count = len(chunks)
+            self.results_text.append(f"✅ Analysis complete: {chunk_count} chunks created")
+
+            return True
+
+        except Exception as e:
+            self.results_text.append(f"❌ Preprocessing failed: {str(e)}")
+            return False
+
+    def stop_generation(self):
+        """Stop audiobook generation."""
+        if (hasattr(self, 'generation_thread') and
+            self.generation_thread is not None and
+            isinstance(self.generation_thread, GenerationThread) and
+            hasattr(self.generation_thread, 'isRunning') and
+            self.generation_thread.isRunning()):
+            self.generation_thread.stop()
+            self.stop_btn.setEnabled(False)
+            self.start_btn.setEnabled(True)
+
+    def on_generation_progress(self, progress_data):
+        """Update generation progress."""
+        print(f"DEBUG: Progress callback received - current={progress_data.get('current_chunk', 0)}, total={progress_data.get('total_chunks', 1)}")
+        current = progress_data.get('current_chunk', 0)
+        total = progress_data.get('total_chunks', 1)
+        elapsed = progress_data.get('elapsed_seconds', 0)
+
+        # Update progress bar
+        if total > 0:
+            percentage = int((current / total) * 100)
+            self.generation_progress_bar.setValue(percentage)
+        else:
+            self.generation_progress_bar.setRange(0, 0)  # Indeterminate
+
+        # Update labels
+        self.chunk_progress_label.setText(f"Chunks: {current}/{total}")
+
+        elapsed_str = f"{elapsed // 60}:{elapsed % 60:02d}"
+        self.time_elapsed_label.setText(f"Elapsed: {elapsed_str}")
+
+        if 'eta_seconds' in progress_data:
+            eta = progress_data['eta_seconds']
+            eta_str = f"{eta // 60}:{eta % 60:02d}"
+            self.eta_label.setText(f"ETA: {eta_str}")
+        else:
+            self.eta_label.setText("ETA: --:--")
+
+        # Update window title with progress
+        if total > 0:
+            self.setWindowTitle(f"Audiobook Generator - {percentage}% Complete")
+        else:
+            self.setWindowTitle("Audiobook Generator - Processing...")
+
+        # Force immediate GUI update to prevent blocking during parallel processing
+        from qtpy.QtWidgets import QApplication
+        QApplication.processEvents()
+
+    def on_generation_finished(self, result):
+        """Handle generation completion."""
+        # Clean up thread reference
+        if hasattr(self, 'generation_thread'):
+            self.generation_thread = None
+
+        self.start_btn.setEnabled(True)
+        self.stop_btn.setEnabled(False)
+
+        if result.get('success', False):
+            # Success
+            self.results_text.append("\n✓ Audiobook generated successfully!")
+            self.results_text.append(f"Output: {result['output_path']}")
+
+            if 'audio_duration' in result:
+                duration_seconds = result['audio_duration']
+                duration_str = f"{int(duration_seconds // 60)}:{int(duration_seconds % 60):02d}"
+                self.results_text.append(f"Duration: {duration_str}")
+
+            if 'realtime_factor' in result:
+                speed = result['realtime_factor']
+                self.results_text.append(f"Speed: {speed:.1f}x realtime")
+
+            if 'chunks_processed' in result and 'total_chunks' in result:
+                self.results_text.append(f"Chunks: {result['chunks_processed']}/{result['total_chunks']}")
+
+            if 'processing_time' in result:
+                proc_time = result['processing_time']
+                time_str = f"{int(proc_time // 60)}:{int(proc_time % 60):02d}"
+                self.results_text.append(f"Processing time: {time_str}")
+
+        else:
+            # Error or cancellation
+            reason = result.get('reason', 'unknown_error')
+            if reason == 'cancelled':
+                self.results_text.append("\n⚠️ Generation cancelled by user")
+            else:
+                self.results_text.append(f"\n❌ Generation failed: {reason}")
+
+            if 'chunks_completed' in result:
+                self.results_text.append(f"Chunks completed: {result['chunks_completed']}")
+
+        # Reset progress display
+        self.generation_progress_bar.setValue(0)
+        self.chunk_progress_label.setText("Chunks: 0/0")
+        self.time_elapsed_label.setText("Elapsed: 0:00")
+        self.eta_label.setText("ETA: --:--")
+        self.setWindowTitle("Audiobook Generator")
+
+        if result.get('success', False) and result.get('asr_investigation_required'):
+            investigation_log = result['asr_investigation_required']
+            if investigation_log:
+                self._show_asr_investigation_popup(investigation_log, result.get('output_path', ''))
+
+    def _show_asr_investigation_popup(self, investigation_log: list, output_path: str):
+        """Show popup when ASR regeneration attempts failed to meet quality threshold."""
+        from pathlib import Path
+
+        chunk_count = len(investigation_log)
+        tts_dir = Path(output_path).parent / "TTS" if output_path else Path(".")
+        log_path = tts_dir / "asr_investigation.log"
+
+        msg = QMessageBox(self)
+        msg.setWindowTitle("ASR Quality Investigation Required")
+        msg.setIcon(QMessageBox.Warning)
+        msg.setText(f"{chunk_count} chunk(s) failed to meet ASR quality threshold after regeneration attempts.")
+        msg.setInformativeText(f"Best regeneration scores were still below the required threshold.\n\nSee investigation log at:\n{log_path}")
+        msg.setStandardButtons(QMessageBox.Ok)
+        msg.exec_()
+
+
+class GenerationThread(QThread):
+    """Background thread for audiobook generation."""
+
+    progress = Signal(dict)
+    finished = Signal(dict)  # Changed to emit result dict
+
+    def __init__(self, chunks, params, config=None, max_workers_override=None):
+        super().__init__()
+        self.chunks = chunks
+        self.params = params
+        self.config = config
+        self.max_workers_override = max_workers_override
+        self.generator = None
+
+        # Debug logging for override pipeline
+        print(f"DEBUG: GenerationThread.__init__ - max_workers_override={max_workers_override}")
+        if config and hasattr(config, 'parallel'):
+            print(f"DEBUG: GenerationThread.__init__ - config.parallel={config.parallel}")
+
+    def run(self):
+        """Run audiobook generation."""
+        try:
+            print(f"DEBUG: GenerationThread.run() - max_workers_override={self.max_workers_override}")
+            if self.config:
+                print(f"DEBUG: GenerationThread.run() - config.parallel={self.config.parallel}")
+
+            # Apply max_workers override to config if set
+            if self.max_workers_override is not None:
+                print(f"DEBUG: Applying override to config: setting max_workers to {self.max_workers_override}")
+                import copy
+                # Get only the valid Config fields (exclude private attributes like _config_path)
+                config_dict = {}
+                valid_fields = ['chunking', 'emotion', 'pauses', 'speed_variation', 'm4b', 'mitigation', 'parallel', 'asr_quality_control', 'gui', 'debug']
+                for field in valid_fields:
+                    if hasattr(self.config, field):
+                        config_dict[field] = copy.deepcopy(getattr(self.config, field))
+                config_dict['parallel'] = self.config.parallel.copy()
+                config_dict['parallel']['max_workers'] = self.max_workers_override
+                from pocket_tts.preprocessing.schema import Config
+                self.config = Config(**config_dict)
+                print(f"DEBUG: Modified config parallel.max_workers={self.config.parallel.get('max_workers')}")
+
+            # Use the modified config
+            print(f"DEBUG: Creating AudiobookGenerator with config parallel.max_workers={self.config.parallel.get('max_workers', 'not found')}")
+            self.generator = AudiobookGeneratorEngine(config=self.config)
+
+            # Progress callback
+            def progress_callback(progress_data):
+                self.progress.emit(progress_data)
+
+            # Generate audiobook
+            result = self.generator.generate_audiobook(
+                chunks=self.chunks,
+                voice_path=self.params['voice_path'],
+                output_path=self.params['output_path'],
+                progress_callback=progress_callback,
+                source_file=self.params.get('source_file', 'unknown'),
+                save_dataset_chunks=True
+            )
+
+            self.finished.emit(result)
+
+        except Exception as e:
+            error_result = {
+                'success': False,
+                'reason': str(e)
+            }
+            self.finished.emit(error_result)
+
+    def stop(self):
+        """Stop generation."""
+        if self.generator:
+            self.generator.cancel_generation()
+
+
+def main():
+    """Main entry point for GUI application."""
+    app = QApplication(sys.argv)
+    app.setApplicationName("Audiobook Generator")
+    app.setApplicationVersion("1.0.0")
+
+    # Set up styling
+    app.setStyle("Fusion")
+
+    # Dark theme palette (optional)
+    palette = QPalette()
+    palette.setColor(QPalette.Window, QColor(53, 53, 53))
+    palette.setColor(QPalette.WindowText, Qt.white)
+    palette.setColor(QPalette.Base, QColor(25, 25, 25))
+    palette.setColor(QPalette.AlternateBase, QColor(53, 53, 53))
+    palette.setColor(QPalette.ToolTipBase, Qt.white)
+    palette.setColor(QPalette.ToolTipText, Qt.white)
+    palette.setColor(QPalette.Text, Qt.white)
+    palette.setColor(QPalette.Button, QColor(53, 53, 53))
+    palette.setColor(QPalette.ButtonText, Qt.white)
+    palette.setColor(QPalette.BrightText, Qt.red)
+    palette.setColor(QPalette.Link, QColor(42, 130, 218))
+    palette.setColor(QPalette.Highlight, QColor(42, 130, 218))
+    palette.setColor(QPalette.HighlightedText, Qt.black)
+    app.setPalette(palette)
+
+    window = AudiobookGenerator()
+    window.show()
+
+    sys.exit(app.exec_())
+
+
+if __name__ == "__main__":
+    main()

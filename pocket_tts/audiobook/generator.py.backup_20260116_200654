@@ -1,0 +1,646 @@
+"""
+Audiobook generation engine with progress tracking and resume capability.
+"""
+
+import os
+import time
+import logging
+from pathlib import Path
+from typing import Dict, Any, List, Optional, Union
+
+try:
+    from ..preprocessing.schema import ChunkMetadata
+    from ..config import ConfigManager
+    from ..data.audio import audio_read
+    import torch
+except ImportError:
+    from preprocessing.schema import ChunkMetadata
+    from config import ConfigManager
+    from data.audio import audio_read
+    import torch
+
+logger = logging.getLogger(__name__)
+
+class AudiobookGenerator:
+    """Generates audiobooks from processed text chunks with progress tracking."""
+
+    def __init__(self, config: Optional[ConfigManager] = None):
+        """
+        Initialize the audiobook generator.
+
+        Args:
+            config: Configuration manager, uses defaults if None
+        """
+        self.config = config or ConfigManager.load_config()
+        self.tts_model = None
+        self.is_cancelled = False
+
+        # Progress tracking
+        self.progress_file = None
+        self.start_time = None
+        self.current_chunk = 0
+        self.total_chunks = 0
+
+        logger.info("AudiobookGenerator initialized")
+
+    @staticmethod
+    def extract_voice_name(voice_path: str) -> str:
+        """Extract clean voice name for filename use."""
+        if voice_path.startswith("Custom:"):
+            # Extract filename without extension from custom voices
+            full_path = voice_path.replace("Custom: ", "")
+            voice_name = Path(full_path).stem  # Remove .wav extension
+        else:
+            # Built-in voice - take first word only
+            voice_name = voice_path.split(" ")[0]  # "alba (default)" -> "alba"
+
+        # Remove special characters for filesystem safety
+        import re
+        voice_name = re.sub(r'[^\w\-_]', '', voice_name)
+
+        return voice_name
+
+    @staticmethod
+    def generate_output_paths(input_text_path: str, voice_path: str = None) -> Dict[str, Union[str, Path]]:
+        """
+        Generate automatic output paths based on input filename.
+
+        Args:
+            input_text_path: Path to input text file
+            voice_path: Voice file path or name (optional)
+
+        Returns:
+            Dictionary with output directory paths
+        """
+        path = Path(input_text_path)
+        filename = path.stem  # Remove .txt extension
+
+        # Extract book title (everything before first " - " or "_output")
+        if " - " in filename:
+            book_title = filename.split(" - ")[0]
+        elif "_output" in filename:
+            book_title = filename.split("_output")[0]
+        else:
+            book_title = filename
+
+        # Clean title for filesystem
+        book_title = book_title.strip().replace('/', '_').replace('\\', '_')
+
+        output_dir = Path("Output") / book_title
+        tts_dir = output_dir / "TTS"
+        audio_chunks_dir = tts_dir / "audio_chunks"
+        text_chunks_dir = tts_dir / "text_chunks"
+
+        # Generate dynamic filename with voice info if provided
+        if voice_path:
+            voice_name = AudiobookGenerator.extract_voice_name(voice_path)
+            final_audio_filename = f"{filename} [{voice_name}].wav"
+        else:
+            final_audio_filename = "audiobook.wav"
+
+        final_audio_path = output_dir / final_audio_filename
+
+        return {
+            'output_dir': output_dir,
+            'tts_dir': tts_dir,
+            'audio_chunks_dir': audio_chunks_dir,
+            'text_chunks_dir': text_chunks_dir,
+            'final_audio_path': final_audio_path,
+            'final_audio_filename': final_audio_filename
+        }
+
+    def _cleanup_existing_chunks(self, audio_chunks_dir: Union[str, Path], text_chunks_dir: Union[str, Path]):
+        """Delete existing chunk files but preserve directory structure."""
+
+        # Delete existing WAV chunks
+        audio_dir = Path(audio_chunks_dir)
+        if audio_dir.exists():
+            for wav_file in audio_dir.glob('chunk_*.wav'):
+                wav_file.unlink()
+            logger.info(f"Cleaned existing WAV chunks from {audio_chunks_dir}")
+
+        # Delete existing TXT chunks and JSON metadata
+        text_dir = Path(text_chunks_dir)
+        if text_dir.exists():
+            for txt_file in text_dir.glob('chunk_*.txt'):
+                txt_file.unlink()
+            # Delete JSON metadata file
+            json_file = text_dir / 'audiobook.chunks.json'
+            if json_file.exists():
+                json_file.unlink()
+                logger.info(f"Deleted old JSON metadata from {text_chunks_dir}")
+            logger.info(f"Cleaned existing TXT chunks from {text_chunks_dir}")
+
+        # Ensure directories exist (create if missing)
+        audio_dir.mkdir(parents=True, exist_ok=True)
+        text_dir.mkdir(parents=True, exist_ok=True)
+
+    def generate_audiobook(self,
+                           chunks: List[ChunkMetadata],
+                           voice_path: str,
+                           output_path: str,
+                           progress_callback=None,
+                           resume: bool = False,
+                           source_file: str = "unknown",
+                           save_dataset_chunks: bool = True) -> Dict[str, Any]:
+        """
+        Generate audiobook from text chunks.
+
+        Args:
+            chunks: List of processed text chunks
+            voice_path: Path to voice file or voice name
+            output_path: Where to save the generated audio
+            progress_callback: Function to call with progress updates
+            resume: Whether to resume from previous session
+            source_file: Path to the original text file
+
+        Returns:
+            Dict with generation results and statistics
+        """
+        # Setup debug logging to file
+        debug_log_path = Path(output_path).with_suffix('.debug.log')
+
+        # Ensure output directory exists before creating debug log
+        debug_log_path.parent.mkdir(parents=True, exist_ok=True)
+
+        import logging
+
+        # Create debug-specific logger
+        debug_logger = logging.getLogger('audiobook_debug')
+        debug_logger.setLevel(logging.DEBUG)
+
+        # Remove any existing handlers to avoid duplicates
+        for handler in debug_logger.handlers[:]:
+            debug_logger.removeHandler(handler)
+
+        # Create file handler
+        debug_handler = logging.FileHandler(debug_log_path, mode='w')
+        debug_handler.setLevel(logging.DEBUG)
+        debug_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+        debug_handler.setFormatter(debug_formatter)
+        debug_logger.addHandler(debug_handler)
+
+        # Also add to main logger
+        logger.addHandler(debug_handler)
+        logger.setLevel(logging.DEBUG)
+
+        # Test debug logging
+        logger.info("=== AUDIOBOOK GENERATION START ===")
+        logger.debug("DEBUG: Debug logging initialized")
+        debug_logger.info("DEBUG_LOGGER: Debug logging active")
+        logger.info(f"Total chunks to process: {len(chunks)}")
+        logger.info(f"Voice: {voice_path}")
+        logger.info(f"Output: {output_path}")
+        logger.info(f"Resume: {resume}")
+        logger.info(f"Source file: {source_file}")
+
+        self.start_time = time.time()
+        self.total_chunks = len(chunks)
+        self.current_chunk = 0
+
+        # Setup progress tracking
+        self.progress_file = Path(output_path).with_suffix('.progress.json')
+
+        # Setup dataset structure if enabled
+        dataset_paths = None
+        saved_chunk_paths = []
+        if save_dataset_chunks:
+            # Use source_file to generate proper naming with voice info
+            dataset_paths = self.generate_output_paths(source_file, voice_path)
+            self._cleanup_existing_chunks(
+                dataset_paths['audio_chunks_dir'],
+                dataset_paths['text_chunks_dir']
+            )
+            logger.info(f"Dataset output directory: {dataset_paths['output_dir']}")
+            # Override output_path to use generated path
+            output_path = dataset_paths['final_audio_path']
+            self.progress_file = Path(output_path).with_suffix('.progress.json')
+            logger.info(f"Using automatic output path: {output_path}")
+
+        if resume and self.progress_file.exists():
+            logger.info("Loading progress for resume...")
+            self._load_progress()
+
+            # Validate loaded progress against actual chunks
+            if self.current_chunk >= len(chunks):
+                logger.warning(f"Progress file corruption detected: current_chunk {self.current_chunk} >= total chunks {len(chunks)}")
+                logger.warning("Resetting progress to start from beginning")
+                self.current_chunk = 0
+            else:
+                chunks = chunks[self.current_chunk:]  # Skip completed chunks
+                logger.info(f"Resumed from chunk {self.current_chunk}, {len(chunks)} chunks remaining")
+
+        try:
+            # Initialize TTS model
+            logger.info("Initializing TTS model...")
+            self._init_tts_model()
+            logger.info("TTS model initialized")
+
+            # Load voice
+            logger.info(f"Loading voice: {voice_path}")
+            voice_state = self._load_voice(voice_path)
+            logger.info("Voice loaded successfully")
+
+            # Generate audio for each chunk
+            audio_chunks = []
+            chunk_start_time = time.time()
+
+            logger.info("=== STARTING CHUNK PROCESSING LOOP ===")
+            original_chunks_count = len(chunks)
+            processed_chunk_texts = set()  # Track for duplicates
+
+            # Store resume position for correct chunk indexing
+            resume_position = self.current_chunk
+
+            for i, chunk in enumerate(chunks):
+                logger.info(f"=== LOOP ITERATION {i+1} ===")
+                logger.info(f"Enumerate index: {i}")
+                logger.info(f"Current chunks list length: {len(chunks)}")
+                logger.info(f"Original chunks count: {original_chunks_count}")
+
+                if len(chunks) != original_chunks_count:
+                    logger.error(f"CRITICAL: Chunks list modified during iteration! {len(chunks)} != {original_chunks_count}")
+                    logger.error("Original chunks:")
+                    for idx, orig_chunk in enumerate(chunks[:original_chunks_count]):
+                        logger.error(f"  {idx}: '{orig_chunk.text[:50]}...'")
+                    logger.error("Current chunks:")
+                    for idx, curr_chunk in enumerate(chunks):
+                        logger.error(f"  {idx}: '{curr_chunk.text[:50]}...'")
+
+                if self.is_cancelled:
+                    logger.info("Generation cancelled by user")
+                    break
+
+                chunk_idx = resume_position + i
+                chunk_text_preview = chunk.text[:50].replace('\n', '\\n')
+                logger.info(f"Processing chunk {chunk_idx + 1}/{self.total_chunks}")
+                logger.info(f"Chunk text: '{chunk_text_preview}...'")
+                logger.info(f"Chunk details: {len(chunk.text)} chars, {chunk.word_count} words")
+                logger.info(f"Emotion: {chunk.emotion}, Confidence: {chunk.emotion_confidence}")
+                logger.info(f"TTS params: {chunk.tts_params}")
+
+                # Check for duplicate processing
+                if chunk.text in processed_chunk_texts:
+                    logger.error(f"DUPLICATE CHUNK DETECTED: '{chunk_text_preview}' processed before")
+                    logger.error(f"Previously processed chunks: {list(processed_chunk_texts)}")
+                else:
+                    processed_chunk_texts.add(chunk.text)
+
+                # Generate audio for this chunk
+                logger.debug("Calling _generate_chunk_audio...")
+                chunk_audio = self._generate_chunk_audio(chunk, voice_state)
+
+                if chunk_audio is not None:
+                    # Save individual chunk files if dataset mode enabled
+                    if save_dataset_chunks and dataset_paths:
+                        chunk_idx_str = f"{chunk_idx:05d}"
+
+                        # Save WAV chunk
+                        wav_path = dataset_paths['audio_chunks_dir'] / f"chunk_{chunk_idx_str}.wav"
+                        self._save_audio(chunk_audio, str(wav_path))
+
+                        # Save text chunk
+                        txt_path = dataset_paths['text_chunks_dir'] / f"chunk_{chunk_idx_str}.txt"
+                        with open(txt_path, 'w', encoding='utf-8') as f:
+                            f.write(chunk.text.strip())
+
+                        # Track saved files for ASR dataset (not concatenation)
+                        saved_chunk_paths.append(wav_path)
+
+                        logger.debug(f"Saved chunk {chunk_idx_str} to dataset files")
+                    # Always keep in memory for concatenation to avoid conversion artifacts
+                    audio_chunks.append(chunk_audio)
+                    logger.info(f"Audio generated successfully: {len(chunk_audio)} samples")
+
+                    # Update progress
+                    self.current_chunk = chunk_idx + 1
+                    logger.info(f"Updated current_chunk to: {self.current_chunk}")
+                    self._save_progress()
+                    logger.debug("Progress saved to file")
+
+                    if progress_callback:
+                        elapsed = time.time() - self.start_time
+                        avg_time = elapsed / self.current_chunk
+                        eta = avg_time * (self.total_chunks - self.current_chunk)
+
+                        progress_data = {
+                            'current_chunk': self.current_chunk,
+                            'total_chunks': self.total_chunks,
+                            'elapsed_seconds': int(elapsed),
+                            'eta_seconds': int(eta),
+                            'chunk_text': chunk.text[:50]
+                        }
+                        logger.debug(f"Sending progress callback: {progress_data}")
+                        progress_callback(progress_data)
+                else:
+                    logger.warning(f"Audio generation failed for chunk {i}, returned None")
+
+                logger.info(f"=== END LOOP ITERATION {i+1} ===")
+
+            logger.info("=== CHUNK PROCESSING LOOP COMPLETED ===")
+            logger.info(f"Total loop iterations: {len(chunks)}")
+            logger.info(f"Audio chunks generated: {len(audio_chunks)}")
+            logger.info(f"Final current_chunk: {self.current_chunk}")
+
+            # Combine all audio chunks
+            if save_dataset_chunks and dataset_paths and saved_chunk_paths:
+                # Use file-based concatenation for dataset mode
+                logger.info("Concatenating saved chunk files...")
+                self._concatenate_from_files(saved_chunk_paths, output_path)
+                logger.info(f"Final audio saved to: {output_path}")
+                audio_duration = 0  # Will be calculated after loading
+
+            elif audio_chunks and not self.is_cancelled:
+                # Use memory-based concatenation for standard mode
+                logger.info("Combining audio chunks in memory...")
+                final_audio = self._combine_audio_chunks(audio_chunks)
+                logger.info(f"Combined audio: {len(final_audio)} total samples")
+
+                logger.info("Saving audio file...")
+                self._save_audio(final_audio, output_path)
+                logger.info("Audio file saved successfully")
+                audio_duration = len(final_audio) / 24000  # Assuming 24kHz sample rate
+            else:
+                raise ValueError("No audio chunks were generated to save.")
+
+            # Save chunk data to JSON
+            logger.info("Saving chunk data to JSON...")
+            self._save_chunks_json(chunks, output_path, voice_path, source_file, dataset_paths or {})
+            logger.info("JSON data saved successfully")
+
+            # Calculate statistics
+            total_time = time.time() - self.start_time
+
+            result = {
+                'success': True,
+                'output_path': output_path,
+                'audio_duration': audio_duration,
+                'processing_time': total_time,
+                'realtime_factor': audio_duration / total_time if total_time > 0 else 0,
+                'chunks_processed': self.current_chunk,
+                'total_chunks': self.total_chunks
+            }
+
+            # Clean up progress file
+            self._cleanup_progress()
+            logger.info("Progress file cleaned up")
+
+            logger.info(f"=== GENERATION COMPLETED SUCCESSFULLY ===")
+            logger.info(f"Generated {audio_duration:.2f}s audio in {total_time:.2f}s ({result['realtime_factor']:.2f}x realtime)")
+            return result
+
+        except Exception as e:
+            logger.error(f"Audiobook generation failed: {e}")
+            logger.error(f"Exception details:", exc_info=True)
+            return {
+                'success': False,
+                'reason': str(e),
+                'chunks_completed': self.current_chunk
+            }
+
+        except Exception as e:
+            logger.error(f"Audiobook generation failed: {e}")
+            logger.error(f"Exception details:", exc_info=True)
+            return {
+                'success': False,
+                'reason': str(e),
+                'chunks_completed': self.current_chunk
+            }
+        finally:
+            # Clean up debug logging
+            logger.removeHandler(debug_handler)
+            debug_logger = logging.getLogger('audiobook_debug')
+            debug_logger.removeHandler(debug_handler)
+            debug_handler.close()
+
+    def cancel_generation(self):
+        """Cancel the current generation process."""
+        self.is_cancelled = True
+        logger.info("Audiobook generation cancelled by user")
+
+    def _init_tts_model(self):
+        """Initialize the TTS model."""
+        try:
+            from ..models.tts_model import TTSModel
+            self.tts_model = TTSModel.load_model()
+            logger.info("TTS model loaded successfully")
+        except Exception as e:
+            logger.error(f"Failed to load TTS model: {e}")
+            raise
+
+    def _load_voice(self, voice_path: str):
+        """Load voice conditioning."""
+        try:
+            voice_state = self.tts_model.get_state_for_audio_prompt(voice_path, truncate=True)
+            logger.info(f"Voice loaded: {voice_path}")
+            return voice_state
+        except Exception as e:
+            logger.error(f"Failed to load voice {voice_path}: {e}")
+            raise
+
+    def _generate_chunk_audio(self, chunk: ChunkMetadata, voice_state):
+        """Generate audio for a single chunk."""
+        try:
+            logger.debug(f"_generate_chunk_audio called for chunk: '{chunk.text[:30]}...'")
+
+            # Get TTS parameters from chunk
+            tts_params = chunk.tts_params
+            temperature = tts_params.get('temperature', 0.7)
+            frames_after_eos = tts_params.get('frames_after_eos', 2)
+
+            logger.debug(f"TTS parameters: temp={temperature}, frames_after_eos={frames_after_eos}")
+
+            # Update model temperature
+            if hasattr(self.tts_model, 'temp'):
+                logger.debug(f"Setting model temperature to {temperature}")
+                self.tts_model.temp = temperature
+
+            # Generate audio
+            logger.debug("Calling self.tts_model.generate_audio...")
+            audio = self.tts_model.generate_audio(
+                voice_state,
+                chunk.text,
+                frames_after_eos=frames_after_eos
+            )
+
+            logger.debug(f"Audio generation successful: {len(audio)} samples returned")
+            return audio
+
+        except Exception as e:
+            logger.error(f"Failed to generate audio for chunk: {e}")
+            logger.error(f"Failed chunk details: text='{chunk.text[:100]}...', params={chunk.tts_params}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            return None
+
+    def _combine_audio_chunks(self, audio_chunks):
+        """Combine multiple audio tensors into one."""
+        import torch
+        return torch.cat(audio_chunks, dim=0)
+
+    def _save_audio(self, audio, output_path: str):
+        """Save audio tensor to WAV file in PCM format."""
+        try:
+            import scipy.io.wavfile
+            import numpy as np
+            # Convert to numpy and ensure proper format for WAV
+            sample_rate = getattr(self.tts_model, 'sample_rate', 24000)
+            # Convert to int16 PCM format that wave module can read
+            audio_int16 = (audio.clamp(-1, 1) * 32767).short().numpy()
+            scipy.io.wavfile.write(output_path, sample_rate, audio_int16)
+            logger.info(f"Audio saved to {output_path}")
+        except Exception as e:
+            logger.error(f"Failed to save audio: {e}")
+            raise
+
+    def _save_progress(self):
+        """Save current progress to file with thread safety."""
+        if self.progress_file:
+            progress_data = {
+                'current_chunk': self.current_chunk,
+                'total_chunks': self.total_chunks,
+                'start_time': self.start_time,
+                'last_update': time.time()
+            }
+
+            try:
+                import json
+                import fcntl  # For file locking
+                with open(self.progress_file, 'w') as f:
+                    fcntl.flock(f.fileno(), fcntl.LOCK_EX)  # Exclusive lock
+                    json.dump(progress_data, f)
+                    fcntl.flock(f.fileno(), fcntl.LOCK_UN)  # Release lock
+            except Exception as e:
+                logger.warning(f"Failed to save progress: {e}")
+
+    def _load_progress(self):
+        """Load progress from file."""
+        if self.progress_file and self.progress_file.exists():
+            try:
+                import json
+                with open(self.progress_file, 'r') as f:
+                    progress_data = json.load(f)
+
+                self.current_chunk = progress_data.get('current_chunk', 0)
+                self.start_time = progress_data.get('start_time', time.time())
+
+                logger.info(f"Resumed from chunk {self.current_chunk}")
+            except Exception as e:
+                logger.warning("Failed to load progress file, starting from beginning")
+
+    def _concatenate_from_files(self, chunk_paths: List[Path], output_path: str):
+        """Concatenate saved WAV files into final audiobook."""
+
+        if not chunk_paths:
+            raise ValueError("No chunk files found to concatenate.")
+
+        # Load and concatenate in order
+        audio_chunks = []
+        for chunk_path in sorted(chunk_paths):  # Ensure 00000, 00001, ... order
+            # Load individual WAV file
+            chunk_audio, _ = audio_read(chunk_path)
+            audio_chunks.append(chunk_audio)
+
+        # Concatenate all chunks
+        final_audio = torch.cat(audio_chunks, dim=0)
+
+        # Save final combined audio
+        self._save_audio(final_audio, output_path)
+
+        # Clear memory
+        del audio_chunks, final_audio
+
+    def _save_chunks_json(self, chunks: List[ChunkMetadata], output_path: str, voice_path: str, source_file: str, dataset_paths: Dict[str, Union[str, Path]]):
+        """Save chunk data to JSON file in text_chunks directory."""
+        try:
+            import json
+            from datetime import datetime
+
+            json_path = Path(dataset_paths['text_chunks_dir']) / 'audiobook.chunks.json'
+
+            # Build metadata
+            metadata = {
+                'source_file': source_file,
+                'output_filename': Path(output_path).name,  # Actual dynamic filename
+                'output_directory': str(Path(output_path).parent),
+                'voice_used': voice_path,
+                'generation_timestamp': datetime.now().isoformat(),
+                'total_chunks': len(chunks)
+            }
+
+            # Build chunks data
+            chunks_data = []
+            for chunk in chunks:
+                chunk_dict = {
+                    'index': chunk.index,
+                    'text': chunk.text.strip(),  # Clean text
+                    'word_count': chunk.word_count,
+                    'character_count': chunk.character_count,
+                    'boundary_type': chunk.boundary_type.value,
+                    'punctuation': chunk.punctuation,
+                    'start_position': chunk.start_position,
+                    'end_position': chunk.end_position,
+                    'emotion': chunk.emotion.value if chunk.emotion else None,
+                    'emotion_scores': chunk.emotion_scores,
+                    'emotion_confidence': chunk.emotion_confidence,
+                    'tts_params': chunk.tts_params,
+                    'post_process': chunk.post_process,
+                    'chapter_number': chunk.chapter_number,
+                    'is_dialogue': chunk.is_dialogue,
+                    'has_emphasis': chunk.has_emphasis
+                }
+                chunks_data.append(chunk_dict)
+
+            # Create final JSON structure
+            json_data = {
+                '_metadata': metadata,
+                'chunks': chunks_data
+            }
+
+            # Save to file
+            with open(json_path, 'w', encoding='utf-8') as f:
+                json.dump(json_data, f, indent=2, ensure_ascii=False)
+
+            logger.info(f"Chunk data saved to {json_path}")
+
+        except Exception as e:
+            logger.error(f"Failed to save chunk metadata: {e}")
+            raise
+
+    def _cleanup_progress(self):
+        """Clean up progress file after successful completion."""
+        if self.progress_file and self.progress_file.exists():
+            try:
+                self.progress_file.unlink()
+                logger.info("Progress file cleaned up")
+            except Exception as e:
+                logger.warning(f"Failed to cleanup progress file: {e}")
+
+    def get_resume_info(self, output_path: str) -> Optional[Dict[str, Any]]:
+        """
+        Get information about resumable generation.
+
+        Args:
+            output_path: Path to the target audio file
+
+        Returns:
+            Dict with resume information, or None if not resumable
+        """
+        progress_file = Path(output_path).with_suffix('.progress.json')
+
+        if not progress_file.exists():
+            return None
+
+        try:
+            import json
+            with open(progress_file, 'r') as f:
+                data = json.load(f)
+
+            return {
+                'current_chunk': data.get('current_chunk', 0),
+                'total_chunks': data.get('total_chunks', 0),
+                'last_update': data.get('last_update', 0),
+                'can_resume': True
+            }
+        except Exception:
+            return None

@@ -25,6 +25,11 @@ def audio_read(filepath: str | Path) -> tuple[torch.Tensor, int]:
     with wave.open(str(filepath), "rb") as wav_file:
         sample_rate = wav_file.getframerate()
 
+        # Check for supported sample width (16-bit)
+        sampwidth = wav_file.getsampwidth()
+        if sampwidth != 2:
+            raise ValueError(f"Unsupported WAV sample width ({sampwidth*8} bits). Please convert your audio file to 16-bit PCM (WAV) format.")
+
         # Read all audio data as 16-bit signed integers
         raw_data = wav_file.readframes(-1)
         samples = np.frombuffer(raw_data, dtype=np.int16).astype(np.float32) / 32768.0

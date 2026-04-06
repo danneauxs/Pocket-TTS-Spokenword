@@ -1,0 +1,249 @@
+# Data classes and types for audiobook generation system
+
+from dataclasses import dataclass
+from typing import Dict, List, Optional, Any
+from enum import Enum
+
+class BoundaryType(Enum):
+    """Types of text boundaries that affect chunking and pauses."""
+    SENTENCE_END = "sentence_end"
+    PARAGRAPH_BREAK = "paragraph_break"
+    CHAPTER_START = "chapter_start"
+    SECTION_BREAK = "section_break"
+
+class EmotionType(Enum):
+    """7 emotions detected by DistilRoBERTa."""
+    JOY = "joy"
+    SURPRISE = "surprise"
+    ANGER = "anger"
+    NEUTRAL = "neutral"
+    SADNESS = "sadness"
+    FEAR = "fear"
+    DISGUST = "disgust"
+
+@dataclass
+class ChapterInfo:
+    """Information about a detected chapter."""
+    title: str
+    start_position: int  # Character position in text
+    chapter_number: Optional[int] = None
+    is_roman_numeral: bool = False
+
+@dataclass
+class ParagraphInfo:
+    """Information about a paragraph boundary."""
+    start_position: int
+    end_position: int
+    text: str
+
+@dataclass
+class SentenceInfo:
+    """Information about a sentence."""
+    text: str
+    start_position: int
+    end_position: int
+    word_count: int
+    punctuation: str  # . ! ? ... etc.
+    is_chapter: bool = False
+    ends_paragraph: bool = False
+
+@dataclass
+class TextStructure:
+    """Complete structural analysis of input text."""
+    chapters: List[ChapterInfo]
+    paragraphs: List[ParagraphInfo]
+    sentences: List[SentenceInfo]
+    total_words: int
+    total_characters: int
+
+@dataclass
+class EmotionResult:
+    """Result of emotion analysis."""
+    dominant_emotion: str
+    scores: Dict[str, float]  # emotion_name -> confidence_score
+    confidence: float  # confidence in dominant emotion
+
+@dataclass
+class ChunkMetadata:
+    """Complete metadata for one text chunk."""
+
+    # Required fields (no defaults)
+    index: int
+    text: str
+    word_count: int
+    character_count: int
+    boundary_type: BoundaryType
+    punctuation: str
+    start_position: int
+    end_position: int
+    emotion: EmotionType
+    emotion_scores: Dict[str, float]
+    emotion_confidence: float
+    tts_params: Dict[str, float]
+    post_process: Dict[str, float]
+
+    # Optional fields (with defaults - must come after required)
+    chapter_number: Optional[int] = None
+    is_dialogue: bool = False
+    has_emphasis: bool = False
+
+@dataclass
+class AudiobookMetadata:
+    """Metadata for entire audiobook project."""
+
+    # File info
+    source_file: str
+    output_file: str
+    generation_timestamp: str
+
+    # Processing settings used
+    chunking_mode: str  # "sentence" or "paragraph"
+    emotion_model: str
+    parameter_complexity: str  # "emotion_only", "emotion_punctuation", "full"
+    speed_variation_enabled: bool
+    speed_range: float
+
+    # Statistics
+    total_chunks: int
+    total_words: int
+    total_characters: int
+    has_chapters: bool
+    chapter_count: Optional[int] = None
+    estimated_duration_minutes: Optional[float] = None
+
+    # Generation status
+    completed_chunks: int = 0
+    is_complete: bool = False
+    last_save_time: Optional[str] = None
+
+@dataclass
+class TTSParams:
+    """TTS parameters for audio generation."""
+    temperature: float
+    frames_after_eos: int  # Pause duration in frames
+    eos_threshold: float
+    lsd_decode_steps: int
+
+@dataclass
+class GenerationProgress:
+    """Progress information during generation."""
+    current_chunk: int
+    total_chunks: int
+    current_chunk_text: str
+    estimated_time_remaining: Optional[str] = None
+    chunks_per_second: Optional[float] = None
+    last_save_time: str = ""
+
+@dataclass
+class Config:
+    """Complete configuration for the system."""
+
+    # Chunking settings
+    chunking: Dict[str, Any]
+
+    # Emotion analysis
+    emotion: Dict[str, Any]
+
+    # Pause durations
+    pauses: Dict[str, Any]
+
+    # Speed variation
+    speed_variation: Dict[str, Any]
+
+    # M4B conversion
+    m4b: Dict[str, Any]
+
+    # Short sentence mitigation
+    mitigation: Dict[str, Any]
+
+    # ASR quality control
+    asr_quality_control: Dict[str, Any]
+
+    # Parallel processing settings
+    parallel: Dict[str, Any]
+
+    # GUI settings
+    gui: Dict[str, Any]
+
+    # Debug settings
+    debug: Dict[str, Any]
+
+    # Quality settings
+    quality: Dict[str, Any] = {}
+
+    def __post_init__(self):
+        """Validate configuration after creation."""
+        self._validate_chunking()
+        self._validate_emotion()
+        self._validate_pauses()
+        self._validate_quality()
+
+    def _validate_chunking(self):
+        """Validate chunking configuration."""
+        required = ['mode', 'min_words', 'max_words']
+        for req in required:
+            if req not in self.chunking:
+                raise ValueError(f"Missing required chunking config: {req}")
+
+        if self.chunking['mode'] not in ['sentence', 'paragraph']:
+            raise ValueError("chunking.mode must be 'sentence' or 'paragraph'")
+
+    def _validate_emotion(self):
+        """Validate emotion configuration."""
+        if 'model' not in self.emotion:
+            raise ValueError("Missing emotion.model")
+
+        if 'mappings' not in self.emotion:
+            raise ValueError("Missing emotion.mappings")
+
+        required_emotions = ['joy', 'surprise', 'anger', 'neutral', 'sadness', 'fear', 'disgust']
+        for emotion in required_emotions:
+            if emotion not in self.emotion['mappings']:
+                raise ValueError(f"Missing emotion mapping for: {emotion}")
+
+    def _validate_pauses(self):
+        """Validate pauses configuration."""
+        required = ['base_durations', 'emotion_multipliers']
+        for req in required:
+            if req not in self.pauses:
+                raise ValueError(f"Missing required pauses config: {req}")
+
+    def _validate_quality(self):
+        """Validate quality configuration, fallback silently to 2."""
+        if not isinstance(self.quality, dict):
+            self.quality = {}
+        self.quality.setdefault('lsd_steps', 2)
+        if not isinstance(self.quality['lsd_steps'], int):
+            self.quality['lsd_steps'] = 2
+
+    def save(self, output_path: str = None) -> None:
+        """Save the current configuration to a file."""
+        import dataclasses
+        import json
+
+        if output_path is None:
+            output_path = getattr(self, '_config_path', None)
+            if output_path is None:
+                raise ValueError("No config file path available for saving")
+
+        # Convert config to dict
+        config_dict = dataclasses.asdict(self)
+
+        # Determine format and save
+        if output_path.endswith(('.yaml', '.yml')):
+            try:
+                import yaml
+                with open(output_path, 'w') as f:
+                    yaml.dump(config_dict, f, default_flow_style=False, sort_keys=False)
+            except ImportError:
+                # Fallback to JSON
+                with open(output_path, 'w') as f:
+                    json.dump(config_dict, f, indent=2)
+        else:
+            # Default to JSON
+            with open(output_path, 'w') as f:
+                json.dump(config_dict, f, indent=2)
+
+# Type aliases for better readability
+Chunk = ChunkMetadata
+TextChunk = ChunkMetadata  # Alias for backward compatibility

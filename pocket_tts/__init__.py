@@ -1,16 +1,21 @@
-from beartype import BeartypeConf
-from beartype.claw import beartype_this_package
+try:
+    from beartype import BeartypeConf
+    from beartype.claw import beartype_this_package
+    beartype_this_package(conf=BeartypeConf(is_color=False))
+except ImportError:
+    # Beartype not available, skip runtime type checking
+    pass
 
-beartype_this_package(conf=BeartypeConf(is_color=False))
+# Only import TTSModel if runtime dependencies are available
+try:
+    from pocket_tts.models.tts_model import TTSModel  # noqa: E402
+    _tts_model_available = True
+except ImportError:
+    _tts_model_available = False
+    TTSModel = None
 
-from pocket_tts.models.tts_model import TTSModel  # noqa: E402
-
-# Public methods:
-# TTSModel.device
-# TTSModel.sample_rate
-# TTSModel.load_model
-# TTSModel.generate_audio
-# TTSModel.generate_audio_stream
-# TTSModel.get_state_for_audio_prompt
-
-__all__ = ["TTSModel"]
+# Public API - only expose TTSModel if available
+if _tts_model_available:
+    __all__ = ["TTSModel"]
+else:
+    __all__ = []

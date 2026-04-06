@@ -1,0 +1,90 @@
+# =====================================================================
+# AUDIOBOOK GENERATION CONFIGURATION
+# =====================================================================
+# This file controls all aspects of audiobook generation.
+# Settings are grouped by function for clarity.
+#
+# Generated automatically - edit as needed.
+# =====================================================================
+
+# CHUNKING SETTINGS - Used in: SmartChunker class
+chunking:
+  mode: paragraph  # "sentence" or "paragraph"
+  min_words: 5      # Minimum words per chunk
+  max_words: 50     # Maximum words per chunk
+  respect_boundaries: true
+
+# EMOTION ANALYSIS - Used in: EmotionAnalyzer class
+emotion:
+  model: j-hartmann/emotion-english-distilroberta-base
+  mappings:
+    joy: {temperature: 0.90, speed_factor: 1.15}
+    surprise: {temperature: 0.85, speed_factor: 1.10}
+    anger: {temperature: 0.80, speed_factor: 1.10}
+    neutral: {temperature: 0.70, speed_factor: 1.0}
+    sadness: {temperature: 0.65, speed_factor: 0.85}
+    fear: {temperature: 0.60, speed_factor: 0.90}
+    disgust: {temperature: 0.65, speed_factor: 0.95}
+
+
+  keyword_boosts:
+    joy:
+      keywords: [ecstatic, thrilled, delighted, excited, joy, happy, thrilled]
+      temperature_boost: 0.03
+      speed_boost: 0.02
+    anger:
+      keywords: [enraged, infuriated, outraged, mad, grumpy, anger, rage]
+      temperature_boost: 0.05
+      speed_boost: 0.03
+
+# PAUSE DURATIONS - Used in: ParameterMapper.calculate_pause()
+pauses:
+  base_durations:
+    sentence_end: 200      # ms
+    paragraph_break: 600   # ms
+    chapter_start: 2000    # ms
+  emotion_multipliers:
+    anger: 1.3    # Angry pauses are 30% longer
+    fear: 1.2     # Fearful pauses 20% longer
+    sadness: 1.4  # Sad pauses 40% longer
+    joy: 0.9     # Joyful pauses 10% shorter
+    neutral: 1.0  # Baseline
+
+# SPEED VARIATION - Used in: SpeedAdjuster class
+speed_variation:
+  enabled: true                    # Toggle on/off
+  method: librosa               # "librosa" or "scipy"
+  range: 0.10                     # ±10% variance
+
+# M4B CONVERSION - Used in: WavToM4bConverter class
+m4b:
+  enabled: false                # Enable automatic conversion
+  speed: 1.0                    # Playback speed multiplier
+  sample_rate: 24000            # Output sample rate in Hz
+  normalization_type: peak      # "none", "peak", "loudness", "simple"
+  target_db: -1.5               # Target peak level in dB
+
+# SHORT SENTENCE MITIGATION - Used in: ParameterMapper class
+mitigation:
+  short_sentence_threshold: 5      # Max words to trigger mitigation
+  temperature_short_sentence: 0.4  # Override temperature for short sentences
+
+# ASR QUALITY CONTROL - Used in: AudiobookGenerator
+asr_quality_control:
+  enabled: true                    # Master switch for ASR retries
+  threshold: 0.85                  # Minimum ASR confidence score (0.0-1.0)
+  max_retries: 3                   # Max number of regeneration attempts per chunk
+  temp_decrement: 0.1              # Amount to lower temperature on each retry
+
+# GUI SETTINGS - Used in: MainWindow class
+gui:
+  theme: light          # "light", "dark", or "system"
+  auto_save_interval: 30   # Seconds between progress saves
+  max_preview_chunks: 50   # How many chunks to show in preview
+  default_output_format: wav  # "wav" or "mp3"
+
+# DEBUG & DEVELOPMENT SETTINGS
+debug:
+  log_level: INFO        # DEBUG, INFO, WARNING, ERROR
+  save_intermediate: false # Save temp files for debugging
+  profile_performance: false # Enable performance profiling

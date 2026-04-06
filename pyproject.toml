@@ -5,22 +5,32 @@ description = "Kyutai's pocket-sized TTS!"
 version = "1.0.1"
 readme = "README.md"
 dependencies = [
-    "numpy>=2",
+    "numpy>=2.2.6",
     # I tried 2.4.0 but the generated audio is wrong, so 2.5+ is needed.
-    "torch>=2.5.0",
-    "pydantic>=2",
+    "torch>=2.9.1",
+    "pydantic>=2.12.5",
     "sentencepiece>=0.2.1",
-    "beartype>=0.22.5",
-    "safetensors>=0.4.0",
-    "typer>=0.10.0",
-    "typing_extensions>=4.0.0",
-    "fastapi>=0.100",
-    "uvicorn>=0.13.0",
+    "beartype>=0.22.9",
+    "safetensors>=0.7.0",
+    "typer>=0.21.1",
+    "typing_extensions>=4.15.0",
+    "fastapi>=0.128.0",
+    "uvicorn>=0.40.0",
     "python-multipart>=0.0.21",
-    "scipy>=1.5.0",
-    "einops>=0.4.0",
-    "huggingface_hub>=0.10",
-    "requests>=2.20.0",
+    "scipy>=1.15.3",
+    "einops>=0.8.1",
+    "huggingface-hub>=0.36.0",
+    "requests>=2.32.5",
+    # Emotion analysis and audio processing
+    "transformers>=4.57.6",
+    "librosa>=0.11.0",
+    # GUI dependencies
+    "qtpy>=2.4.3",
+    "pyqt5>=5.15.11",
+    "pyyaml>=6.0.3",
+    "pyinstaller>=6.18.0",
+    "psutil>=7.2.1",
+    "aiohttp>=3.13.3",  # For async downloads
 ]
 
 

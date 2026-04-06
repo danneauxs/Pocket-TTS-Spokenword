@@ -1,0 +1,1603 @@
+"""
+Audiobook generation engine with progress tracking and resume capability.
+"""
+
+import os
+import time
+import json
+import logging
+from multiprocessing import Queue
+import dataclasses
+from pathlib import Path
+from typing import Dict, Any, List, Optional, Union, Tuple
+
+try:
+    from ..preprocessing.schema import ChunkMetadata, Config, TTSParams
+    from ..config import ConfigManager
+    from ..data.audio import audio_read
+    from ..audio.m4b_converter import WavToM4bConverter
+    import torch
+    import psutil
+except ImportError:
+    from preprocessing.schema import ChunkMetadata, Config, TTSParams
+    from config import ConfigManager
+    from data.audio import audio_read
+    from audio.m4b_converter import WavToM4bConverter
+    import torch
+    try:
+        import psutil
+    except ImportError:
+        psutil = None
+except ImportError:
+    from preprocessing.schema import ChunkMetadata, Config, TTSParams
+    from config import ConfigManager
+    from data.audio import audio_read
+    from audio.m4b_converter import WavToM4bConverter
+    import torch
+
+logger = logging.getLogger(__name__)
+
+class AudiobookGenerator:
+    """Generates audiobooks from processed text chunks with progress tracking."""
+
+    def __init__(self, config: Optional[Union[ConfigManager, Config]] = None):
+        """
+        Initialize the audiobook generator.
+
+        Args:
+            config: Configuration object or manager, uses defaults if None
+        """
+        # Handle both ConfigManager class (legacy) and Config object
+        if config is None:
+            self.config = ConfigManager.load_config()
+        elif isinstance(config, ConfigManager):
+            # If passed the class itself (legacy behavior)
+            self.config = ConfigManager.load_config()
+        else:
+            # Assumed to be Config object
+            self.config = config
+
+        self.tts_model = None
+        self.is_cancelled = False
+
+        # Progress tracking
+        self.start_time = None
+        self.current_chunk = 0
+        self.total_chunks = 0
+
+        # Pause injection settings (can be set by caller before generate_audiobook)
+        self._pause_injection_enabled = False
+        self._pause_durations = {}
+
+        # Load parallel processing configuration
+        parallel_config = getattr(self.config, 'parallel', {})
+        self.parallel_enabled = parallel_config.get('enabled', True)
+        self.max_workers_config = parallel_config.get('max_workers', 4)
+        self.min_workers_config = parallel_config.get('min_workers', 1)
+        self.ram_limit_percent = parallel_config.get('ram_limit_percent', 80)
+        self.load_threshold = parallel_config.get('load_threshold', 8.0)
+#        self.adaptive_workers = parallel_config.get('adaptive_workers', True)
+        self.adaptive_workers = False
+        # Calculate initial worker count using physical cores
+        if self.parallel_enabled:
+            physical_cores = psutil.cpu_count(logical=False) if psutil else None
+            logical_cpus = psutil.cpu_count(logical=True) if psutil else None
+            
+            if physical_cores:
+                cpu_based_workers = max(1, physical_cores - 1)
+                logger.info(f"Physical CPU cores: {physical_cores}, Logical CPUs: {logical_cpus}")
+            else:
+                cpu_count = os.cpu_count()
+                cpu_based_workers = max(1, cpu_count - 5) if cpu_count else 2
+                logger.warning(f"psutil not available, using logical CPU count: {cpu_count}")
+            
+            self.num_workers = min(cpu_based_workers, self.max_workers_config)
+            logger.info(f"CPU-based workers: {cpu_based_workers}, Config max: {self.max_workers_config}")
+        else:
+            self.num_workers = 1  # Sequential only
+
+        logger.info(f"Parallel processing {'enabled' if self.parallel_enabled else 'disabled'} with {self.num_workers} workers")
+        if self.adaptive_workers:
+            logger.info(f"Resource limits: RAM {self.ram_limit_percent}%, Load {self.load_threshold}")
+            logger.info(f"Worker range: {self.min_workers_config}-{self.max_workers_config}")
+
+    def _check_system_resources(self) -> Tuple[bool, str]:
+        """
+        Check if system resources are within acceptable limits.
+
+        Returns:
+            Tuple of (resources_ok, reason_if_not)
+        """
+        if not psutil:
+            return True, "psutil not available"
+
+        try:
+            # Check RAM usage
+            ram_percent = psutil.virtual_memory().percent
+            if ram_percent > self.ram_limit_percent:
+                return False, f"RAM usage {ram_percent:.1f}% exceeds limit {self.ram_limit_percent}%"
+
+            # Check system load
+            load_avg = psutil.getloadavg()[0] / psutil.cpu_count()
+            if load_avg > self.load_threshold:
+                return False, f"System load {load_avg:.1f} exceeds threshold {self.load_threshold}"
+
+            return True, ""
+
+        except Exception as e:
+            logger.warning(f"Failed to check system resources: {e}")
+            return True, "Resource check failed"
+
+    def _adjust_workers_for_resources(self) -> int:
+        """
+        Adjust the number of workers based on current system resources.
+
+        Returns:
+            Adjusted number of workers (respects config min/max limits)
+        """
+        if not self.adaptive_workers:
+            return min(self.num_workers, self.max_workers_config)
+
+        resources_ok, reason = self._check_system_resources()
+        if resources_ok:
+            return min(self.num_workers, self.max_workers_config)
+
+        # Reduce workers if resources are strained
+        current_workers = self.num_workers
+        reduced_workers = max(self.min_workers_config, current_workers - 1)
+
+        logger.warning(f"Resource limits exceeded ({reason}), reducing workers from {current_workers} to {reduced_workers}")
+        return reduced_workers
+
+        logger.info("AudiobookGenerator initialized")
+
+    @staticmethod
+    def extract_voice_name(voice_path: str) -> str:
+        """Extract clean voice name for filename use."""
+        from pathlib import Path
+        import re
+        from urllib.parse import unquote
+
+        # Clean up URI prefix if present (e.g. from drag-and-drop or browser copy)
+        if voice_path.startswith("file://"):
+            voice_path = unquote(voice_path.replace("file://", ""))
+
+        # Handle legacy "Custom: " prefix if present
+        if voice_path.startswith("Custom:"):
+             voice_path = voice_path.replace("Custom: ", "")
+
+        # Check for path separators (Linux/Mac '/' or Windows '\')
+        if "/" in voice_path or "\\" in voice_path:
+            # It's a path - take the stem (filename without extension)
+            voice_name = Path(voice_path).stem
+        else:
+            # Built-in voice - take first word (e.g. "alba (default)" -> "alba")
+            voice_name = voice_path.split(" ")[0]
+
+        # Remove special characters for filesystem safety
+        # We allow alphanumerics, underscores, hyphens
+        voice_name = re.sub(r'[^\w\-_]', '', voice_name)
+
+        return voice_name
+
+    @staticmethod
+    def generate_output_paths(input_text_path: str, voice_path: str = None) -> Dict[str, Union[str, Path]]:
+        """
+        Generate automatic output paths based on input filename.
+
+        Args:
+            input_text_path: Path to input text file
+            voice_path: Voice file path or name (optional)
+
+        Returns:
+            Dictionary with output directory paths
+        """
+        path = Path(input_text_path)
+        filename = path.stem  # Remove .txt extension
+
+        # Extract book title (everything before first " - " or "_output")
+        if " - " in filename:
+            book_title = filename.split(" - ")[0]
+        elif "_output" in filename:
+            book_title = filename.split("_output")[0]
+        else:
+            book_title = filename
+
+        # Clean title for filesystem
+        book_title = book_title.strip().replace('/', '_').replace('\\', '_')
+
+        output_dir = Path("Output") / book_title
+        tts_dir = output_dir / "TTS"
+        audio_chunks_dir = tts_dir / "audio_chunks"
+        text_chunks_dir = tts_dir / "text_chunks"
+
+        # Generate dynamic filename with voice info if provided
+        if voice_path:
+            voice_name = AudiobookGenerator.extract_voice_name(voice_path)
+            final_audio_filename = f"{filename} [{voice_name}].wav"
+        else:
+            final_audio_filename = "audiobook.wav"
+
+        final_audio_path = output_dir / final_audio_filename
+
+        return {
+            'output_dir': output_dir,
+            'tts_dir': tts_dir,
+            'audio_chunks_dir': audio_chunks_dir,
+            'text_chunks_dir': text_chunks_dir,
+            'final_audio_path': final_audio_path,
+            'final_audio_filename': final_audio_filename
+        }
+
+    def _cleanup_existing_chunks(self, audio_chunks_dir: Union[str, Path], text_chunks_dir: Union[str, Path]):
+        """Delete existing chunk files but preserve directory structure."""
+
+        # Delete existing WAV chunks
+        audio_dir = Path(audio_chunks_dir)
+        if audio_dir.exists():
+            for wav_file in audio_dir.glob('chunk_*.wav'):
+                wav_file.unlink()
+            logger.info(f"Cleaned existing WAV chunks from {audio_chunks_dir}")
+
+        # Delete existing TXT chunks and JSON metadata
+        text_dir = Path(text_chunks_dir)
+        if text_dir.exists():
+            for txt_file in text_dir.glob('chunk_*.txt'):
+                txt_file.unlink()
+            # Delete JSON metadata file
+            json_file = text_dir / 'audiobook.chunks.json'
+            if json_file.exists():
+                json_file.unlink()
+                logger.info(f"Deleted old JSON metadata from {text_chunks_dir}")
+            logger.info(f"Cleaned existing TXT chunks from {text_chunks_dir}")
+
+        # Ensure directories exist (create if missing)
+        audio_dir.mkdir(parents=True, exist_ok=True)
+        text_dir.mkdir(parents=True, exist_ok=True)
+
+    def generate_audiobook(self,
+                           chunks: List[ChunkMetadata],
+                           voice_path: str,
+                           output_path: str,
+                           progress_callback=None,
+                           source_file: str = "unknown",
+                           save_dataset_chunks: bool = True) -> Dict[str, Any]:
+        """
+        Generate audiobook from text chunks.
+
+        Args:
+            chunks: List of processed text chunks
+            voice_path: Path to voice file or voice name
+            output_path: Where to save the generated audio
+            progress_callback: Function to call with progress updates
+            source_file: Path to the original text file
+
+        Returns:
+            Dict with generation results and statistics
+        """
+        # Setup debug logging to file
+        debug_log_path = Path(output_path).with_suffix('.debug.log')
+
+        # Ensure output directory exists before creating debug log
+        debug_log_path.parent.mkdir(parents=True, exist_ok=True)
+
+        import logging
+
+        # Create debug-specific logger
+        debug_logger = logging.getLogger('audiobook_debug')
+        debug_logger.setLevel(logging.DEBUG)
+
+        # Remove any existing handlers to avoid duplicates
+        for handler in debug_logger.handlers[:]:
+            debug_logger.removeHandler(handler)
+
+        # Create file handler
+        debug_handler = logging.FileHandler(debug_log_path, mode='w')
+        debug_handler.setLevel(logging.DEBUG)
+        debug_formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+        debug_handler.setFormatter(debug_formatter)
+        debug_logger.addHandler(debug_handler)
+
+        # Also add to main logger
+        logger.addHandler(debug_handler)
+        logger.setLevel(logging.DEBUG)
+
+        # Add to preprocessing loggers for diagnostic output
+        preprocessing_loggers = [
+            logging.getLogger('pocket_tts.preprocessing.structure_detector'),
+            logging.getLogger('pocket_tts.preprocessing.chunker'),
+        ]
+        for pre_logger in preprocessing_loggers:
+            pre_logger.addHandler(debug_handler)
+            pre_logger.setLevel(logging.INFO)
+
+        # Test debug logging
+        logger.info("=== AUDIOBOOK GENERATION START ===")
+        logger.debug("DEBUG: Debug logging initialized")
+        debug_logger.info("DEBUG_LOGGER: Debug logging active")
+        logger.info(f"Total chunks to process: {len(chunks)}")
+        logger.info(f"Voice: {voice_path}")
+        logger.info(f"Output: {output_path}")
+        logger.info(f"Source file: {source_file}")
+
+        self.start_time = time.time()
+        self.total_chunks = len(chunks)
+        self.current_chunk = 0
+        investigation_log = []
+
+        # Setup dataset structure if enabled
+        dataset_paths = None
+        saved_chunk_paths = []
+        if save_dataset_chunks:
+            # Use source_file to generate proper naming with voice info
+            dataset_paths = self.generate_output_paths(source_file, voice_path)
+            self._cleanup_existing_chunks(
+                dataset_paths['audio_chunks_dir'],
+                dataset_paths['text_chunks_dir']
+            )
+            logger.info(f"Dataset output directory: {dataset_paths['output_dir']}")
+            # Override output_path to use generated path
+            output_path = dataset_paths['final_audio_path']
+            logger.info(f"Using automatic output path: {output_path}")
+
+        logger.info(f"Output: {output_path}")
+        logger.info(f"Source file: {source_file}")
+
+        # Setup dataset structure if enabled
+        dataset_paths = None
+        saved_chunk_paths = []
+        if save_dataset_chunks:
+            # Use source_file to generate proper naming with voice info
+            dataset_paths = self.generate_output_paths(source_file, voice_path)
+            self._cleanup_existing_chunks(
+                dataset_paths['audio_chunks_dir'],
+                dataset_paths['text_chunks_dir']
+            )
+            logger.info(f"Dataset output directory: {dataset_paths['output_dir']}")
+            # Override output_path to use generated path
+            output_path = dataset_paths['final_audio_path']
+            logger.info(f"Using automatic output path: {output_path}")
+
+        try:
+            # Initialize TTS model
+            logger.info("Initializing TTS model...")
+            self._init_tts_model()
+            logger.info("TTS model initialized")
+
+            # Convert custom voice files if needed
+            import os
+            if os.path.isfile(voice_path):
+                from ..data.voice_converter import VoicePromptConverter
+                converter = VoicePromptConverter()
+                # Use the TTS directory for converted voices
+                if save_dataset_chunks and dataset_paths:
+                    tts_dir = dataset_paths['tts_dir']
+                else:
+                    # Fallback: use temp directory
+                    import tempfile
+                    tts_dir = Path(tempfile.gettempdir()) / "pocket_tts_converted_voices"
+                    tts_dir.mkdir(exist_ok=True)
+                converted_path = converter.convert(voice_path, tts_dir)
+                logger.info(f"Converted custom voice to: {converted_path}")
+                voice_path = str(converted_path)
+
+            # Load voice
+            logger.info(f"Loading voice: {voice_path}")
+            voice_state = self._load_voice(voice_path)
+            logger.info("Voice loaded successfully")
+
+            # Save chunk data to JSON immediately after preprocessing
+            if save_dataset_chunks and dataset_paths:
+                logger.info("Saving chunk data to JSON (preprocessing complete)...")
+                self._save_chunks_json(chunks, output_path, voice_path, source_file, dataset_paths,
+                                      is_preliminary=True)
+                logger.info("Preliminary JSON data saved successfully")
+
+            # --- ASR Quality Control Setup ---
+            asr_process = None
+            asr_failure_log = None
+            asr_config = getattr(self.config, 'asr_quality_control', {})
+            asr_enabled = asr_config.get('enabled', False)
+
+            if asr_enabled and save_dataset_chunks and dataset_paths:
+                asr_exe = asr_config.get('executable_path', 'ASR/venv/bin/python')
+                asr_script = 'ASR/asr_validator.py'
+                monitor_folder = str(Path(dataset_paths['audio_chunks_dir']))
+                asr_failure_log = str(Path(dataset_paths['tts_dir']) / 'asr_failures.json')
+                threshold = asr_config.get('threshold', 0.85)
+
+                # Ensure monitor folder exists before launching ASR
+                monitor_path = Path(monitor_folder)
+                if not monitor_path.exists():
+                    logger.info(f"Creating ASR monitor folder: {monitor_folder}")
+                    monitor_path.mkdir(parents=True, exist_ok=True)
+                else:
+                    logger.info(f"ASR monitor folder exists: {monitor_folder}")
+
+                # Clear any previous failure log
+                if Path(asr_failure_log).exists():
+                    Path(asr_failure_log).unlink()
+
+                # Launch ASR monitor as subprocess
+                try:
+                    import subprocess
+                    asr_process = subprocess.Popen(
+                        [asr_exe, asr_script,
+                         '--monitor-folder', monitor_folder,
+                         '--log-file', asr_failure_log,
+                         '--threshold', str(threshold)],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.PIPE,
+                        text=True
+                    )
+                    logger.info(f"ASR monitor launched: {asr_exe} {asr_script}")
+                    logger.info(f"ASR monitoring: {monitor_folder}")
+                    logger.info(f"ASR failure log: {asr_failure_log}")
+                    logger.info(f"ASR threshold: {threshold}")
+                except Exception as e:
+                    logger.warning(f"Failed to launch ASR monitor: {e}")
+                    asr_process = None
+
+            # Generate audio for each chunk
+            audio_chunks = []
+            chunk_start_time = time.time()
+
+            logger.info("=== STARTING PARALLEL CHUNK PROCESSING ===")
+            original_chunks_count = len(chunks)
+
+            # Use parallel processing if enabled and worthwhile
+            use_parallel = self.parallel_enabled and self.num_workers > 1 and len(chunks) >= 4
+
+            if use_parallel and save_dataset_chunks and dataset_paths:
+                # Parallel processing mode
+                logger.info(f"Using parallel processing with {self.num_workers} workers")
+                saved_chunk_paths = self._generate_chunks_parallel(
+                    chunks, voice_path, Path(dataset_paths['audio_chunks_dir']),
+                    progress_callback, save_dataset_chunks, dataset_paths
+                )
+                audio_chunks = None  # Not used in parallel mode
+            else:
+                # Sequential processing mode (fallback)
+                logger.info("Using sequential processing")
+                processed_chunk_texts = set()  # Track for duplicates
+
+                for i, chunk in enumerate(chunks):
+                    logger.info(f"=== LOOP ITERATION {i+1} ===")
+                    logger.info(f"Enumerate index: {i}")
+                    logger.info(f"Current chunks list length: {len(chunks)}")
+                    logger.info(f"Original chunks count: {original_chunks_count}")
+
+                    if len(chunks) != original_chunks_count:
+                        logger.error(f"CRITICAL: Chunks list modified during iteration! {len(chunks)} != {original_chunks_count}")
+                        logger.error("Original chunks:")
+                        for idx, orig_chunk in enumerate(chunks[:original_chunks_count]):
+                            logger.error(f"  {idx}: '{orig_chunk.text[:50]}...'")
+                        logger.error("Current chunks:")
+                        for idx, curr_chunk in enumerate(chunks):
+                            logger.error(f"  {idx}: '{curr_chunk.text[:50]}...'")
+
+                    if self.is_cancelled:
+                        logger.info("Generation cancelled by user")
+                        break
+
+                    chunk_idx = i
+                    chunk_text_preview = chunk.text[:50].replace('\n', '\\n')
+                    logger.info(f"Processing chunk {chunk_idx + 1}/{self.total_chunks}")
+                    logger.info(f"Chunk text: '{chunk_text_preview}...'")
+                    logger.info(f"Chunk details: {len(chunk.text)} chars, {chunk.word_count} words")
+                    logger.info(f"Emotion: {chunk.emotion}, Confidence: {chunk.emotion_confidence}")
+                    logger.info(f"TTS params: {chunk.tts_params}")
+
+                    # Check for duplicate processing
+                    if chunk.text in processed_chunk_texts:
+                        logger.error(f"DUPLICATE CHUNK DETECTED: '{chunk_text_preview}' processed before")
+                        logger.error(f"Previously processed chunks: {list(processed_chunk_texts)}")
+                    else:
+                        processed_chunk_texts.add(chunk.text)
+
+                    # Generate audio for this chunk
+                    logger.debug("Calling _generate_chunk_audio...")
+                    chunk_audio = self._generate_chunk_audio(chunk, voice_state)
+
+                    if chunk_audio is not None:
+                        # Save individual chunk files if dataset mode enabled
+                        if save_dataset_chunks and dataset_paths:
+                            chunk_idx_str = f"{chunk_idx:05d}"
+
+                            # Save WAV chunk
+                            wav_path = dataset_paths['audio_chunks_dir'] / f"chunk_{chunk_idx_str}.wav"
+                            self._save_audio(chunk_audio, str(wav_path))
+
+                            # Save text chunk
+                            txt_path = dataset_paths['text_chunks_dir'] / f"chunk_{chunk_idx_str}.txt"
+                            with open(txt_path, 'w', encoding='utf-8') as f:
+                                f.write(chunk.text.strip())
+
+                            # Track saved files for ASR dataset (not concatenation)
+                            saved_chunk_paths.append(wav_path)
+
+                            logger.debug(f"Saved chunk {chunk_idx_str} to dataset files")
+                        # Always keep in memory for concatenation to avoid conversion artifacts
+                        audio_chunks.append(chunk_audio)
+                        logger.info(f"Audio generated successfully: {len(chunk_audio)} samples")
+
+                        # Update progress
+                        self.current_chunk = chunk_idx + 1
+                        logger.info(f"Updated current_chunk to: {self.current_chunk}")
+
+                        if progress_callback:
+                            elapsed = time.time() - self.start_time
+                            avg_time = elapsed / self.current_chunk
+                            eta = avg_time * (self.total_chunks - self.current_chunk)
+
+                            progress_data = {
+                                'current_chunk': self.current_chunk,
+                                'total_chunks': self.total_chunks,
+                                'elapsed_seconds': int(elapsed),
+                                'eta_seconds': int(eta),
+                                'chunk_text': chunk.text[:50]
+                            }
+                            logger.debug(f"Sending progress callback: {progress_data}")
+                            progress_callback(progress_data)
+                    else:
+                        logger.warning(f"Audio generation failed for chunk {i}, returned None")
+
+                    logger.info(f"=== END LOOP ITERATION {i+1} ===")
+
+            logger.info("=== CHUNK PROCESSING LOOP COMPLETED ===")
+            logger.info(f"Total loop iterations: {len(chunks)}")
+            if audio_chunks is not None:
+                logger.info(f"Audio chunks generated: {len(audio_chunks)}")
+            else:
+                logger.info("Audio chunks generated via parallel processing")
+            logger.info(f"Final current_chunk: {self.current_chunk}")
+
+            # --- ASR Quality Control Cleanup ---
+            if asr_process is not None:
+                logger.info("Terminating ASR monitor...")
+                try:
+                    asr_process.terminate()
+                    stdout, stderr = asr_process.communicate(timeout=10)
+                    logger.info(f"ASR exit code: {asr_process.returncode}")
+                    if stdout:
+                        logger.info(f"ASR stdout: {stdout}")
+                    if stderr:
+                        logger.warning(f"ASR stderr: {stderr}")
+                    logger.info("ASR monitor terminated")
+                except Exception as e:
+                    logger.warning(f"Error terminating ASR monitor: {e}")
+                    asr_process.kill()
+
+                # Check and process failure log
+                if asr_failure_log and Path(asr_failure_log).exists():
+                    logger.info(f"ASR failure log found: {asr_failure_log}")
+                    # Log the contents
+                    import json
+                    try:
+                        with open(asr_failure_log, 'r') as f:
+                            failures = json.load(f)
+                            logger.info(f"ASR found {len(failures)} failed chunks")
+                            for failure in failures:
+                                logger.info(f"  Failed: chunk_{failure.get('chunk_index', 'unknown'):05d} - score: {failure.get('score', 0):.2f}")
+                    except Exception as log_err:
+                        logger.warning(f"Could not read ASR failure log: {log_err}")
+
+                    logger.info("Processing ASR failure log...")
+                    investigation_log = self._reprocess_failed_chunks(
+                        asr_failure_log,
+                        voice_state,
+                        dataset_paths,
+                        asr_config
+                    )
+                else:
+                    logger.info("No ASR failure log found - no chunks failed quality check")
+                    investigation_log = []
+
+            # Combine all audio chunks
+            if save_dataset_chunks and dataset_paths and saved_chunk_paths:
+                # Use file-based concatenation for dataset mode
+                logger.info("Concatenating saved chunk files...")
+                self._concatenate_from_files(saved_chunk_paths, output_path)
+                logger.info(f"Final audio saved to: {output_path}")
+
+                # Calculate actual duration from saved file
+                try:
+                    # Re-read the file to get exact duration
+                    final_audio_loaded, sr = audio_read(str(output_path))
+                    # Handle both [samples] and [channels, samples] shapes
+                    samples = final_audio_loaded.shape[-1]
+                    audio_duration = samples / sr
+                    logger.info(f"Calculated audio duration: {audio_duration:.2f}s")
+                except Exception as e:
+                    logger.warning(f"Could not calculate duration from file: {e}")
+                    audio_duration = 0
+
+            elif audio_chunks and not self.is_cancelled:
+                # Use memory-based concatenation for standard mode
+                logger.info("Combining audio chunks in memory...")
+                final_audio = self._combine_audio_chunks(audio_chunks)
+                logger.info(f"Combined audio: {len(final_audio)} total samples")
+
+                logger.info("Saving audio file...")
+                self._save_audio(final_audio, output_path)
+                logger.info("Audio file saved successfully")
+                audio_duration = len(final_audio) / 24000  # Assuming 24kHz sample rate
+            else:
+                raise ValueError("No audio chunks were generated to save.")
+
+            # Calculate final statistics before saving JSON
+            total_time = time.time() - self.start_time
+            self.processing_time = total_time
+            self.realtime_factor = audio_duration / total_time if total_time > 0 else 0
+            self.chunks_processed = self.current_chunk + 1
+            self.audio_duration = audio_duration
+
+            # Save chunk data to JSON (final version with statistics)
+            logger.info("Saving final chunk data to JSON...")
+            self._save_chunks_json(chunks, output_path, voice_path, source_file, dataset_paths or {})
+            logger.info("JSON data saved successfully")
+
+            # --- M4B Conversion ---
+            final_output_path = output_path
+            m4b_enabled = False
+
+            # Check if m4b config exists and is enabled
+            if hasattr(self.config, 'm4b') and self.config.m4b.get('enabled', False):
+                m4b_enabled = True
+                logger.info("M4B conversion enabled. Starting conversion...")
+
+                try:
+                    m4b_path = Path(output_path).with_suffix('.m4b')
+                    converter = WavToM4bConverter(self.config.m4b)
+
+                    success = converter.convert_to_m4b(
+                        wav_path=output_path,
+                        output_path=m4b_path
+                    )
+
+                    if success:
+                        logger.info(f"M4B conversion successful: {m4b_path}")
+
+                        # Add metadata (cover art support could be added here later)
+                        # Minimal metadata from available info
+                        metadata = {
+                            "title": Path(source_file).stem,
+                            "encoder": "Pocket-TTS"
+                        }
+                        converter.add_metadata(m4b_path, metadata_dict=metadata)
+
+                        final_output_path = m4b_path
+                    else:
+                        logger.warning("M4B conversion failed. Keeping WAV file.")
+
+                except Exception as e:
+                    logger.error(f"Error during M4B conversion: {e}")
+
+            result = {
+                'success': True,
+                'output_path': str(final_output_path),
+                'audio_duration': audio_duration,
+                'processing_time': total_time,
+                'realtime_factor': audio_duration / total_time if total_time > 0 else 0,
+                'chunks_processed': self.current_chunk,
+                'total_chunks': self.total_chunks,
+                'asr_investigation_required': investigation_log
+            }
+
+            logger.info("=== GENERATION COMPLETED SUCCESSFULLY ===")
+            logger.info(f"Generated {audio_duration:.2f}s audio in {total_time:.2f}s ({result['realtime_factor']:.2f}x realtime)")
+            return result
+
+        except Exception as e:
+            logger.error(f"Audiobook generation failed: {e}")
+            logger.error("Exception details:", exc_info=True)
+            return {
+                'success': False,
+                'reason': str(e),
+                'chunks_completed': self.current_chunk
+            }
+
+        except Exception as e:
+            logger.error(f"Audiobook generation failed: {e}")
+            logger.error("Exception details:", exc_info=True)
+            return {
+                'success': False,
+                'reason': str(e),
+                'chunks_completed': self.current_chunk
+            }
+        finally:
+            # Clean up debug logging
+            logger.removeHandler(debug_handler)
+            debug_logger = logging.getLogger('audiobook_debug')
+            debug_logger.removeHandler(debug_handler)
+            debug_handler.close()
+
+    def cancel_generation(self):
+        """Cancel the current generation process."""
+        self.is_cancelled = True
+        logger.info("Audiobook generation cancelled by user")
+
+    def _generate_chunks_parallel(self, chunks: List[ChunkMetadata], voice_path: str,
+                                   output_dir: Path, progress_callback=None,
+                                   save_dataset_chunks: bool = False, dataset_paths: Dict = None) -> List[Path]:
+        """
+        Generate audio chunks in parallel using dynamic queue-based dispatching.
+        Workers pull chunks from a shared queue as they become available, providing
+        better load balancing than pre-divided batches.
+
+        Args:
+            chunks: List of chunk metadata
+            voice_path: Path to voice file
+            output_dir: Directory to save audio chunks
+            progress_callback: Progress callback function
+
+        Returns:
+            List of paths to saved audio files
+        """
+        from multiprocessing import Process
+
+        effective_workers = self._adjust_workers_for_resources()
+
+        if effective_workers != self.num_workers:
+            logger.info(f"Starting parallel generation for {len(chunks)} chunks with {effective_workers} workers (adjusted from {self.num_workers})")
+        else:
+            logger.info(f"Starting parallel generation for {len(chunks)} chunks with {effective_workers} workers")
+
+        output_dir_str = str(output_dir)
+        total_chunks = len(chunks)
+        saved_chunk_paths = []
+        completed_chunks = 0
+
+        chunk_queue = Queue()
+
+        for i, chunk in enumerate(chunks):
+            chunk_queue.put((i, chunk))
+
+        for _ in range(effective_workers):
+            chunk_queue.put((None, None))
+
+        result_queue = Queue()
+
+        workers = []
+        for worker_id in range(effective_workers):
+            worker = Process(
+                target=_queue_worker,
+                args=(chunk_queue, voice_path, output_dir_str, result_queue, worker_id,
+                      self._pause_injection_enabled, self._pause_durations)
+            )
+            worker.daemon = True
+            worker.start()
+            workers.append(worker)
+
+        self.current_chunk = 0
+
+        while completed_chunks < total_chunks:
+            try:
+                result = result_queue.get(timeout=300)
+                if result is not None:
+                    saved_path, chunk_idx, chunk_text = result
+                    if saved_path is not None:
+                        saved_chunk_paths.append(saved_path)
+                        completed_chunks += 1
+                        self.current_chunk = completed_chunks
+
+                        if progress_callback:
+                            elapsed = time.time() - self.start_time
+                            avg_time = elapsed / completed_chunks if completed_chunks > 0 else 0
+                            eta = avg_time * (total_chunks - completed_chunks)
+
+                            progress_data = {
+                                'current_chunk': completed_chunks,
+                                'total_chunks': total_chunks,
+                                'elapsed_seconds': int(elapsed),
+                                'eta_seconds': int(eta),
+                                'chunk_text': chunk_text[:50] if chunk_text else ''
+                            }
+                            progress_callback(progress_data)
+            except Exception as e:
+                logger.warning(f"Error getting result from worker: {e}")
+
+            if completed_chunks % 10 == 0:
+                logger.info(f"Completed {completed_chunks}/{total_chunks} chunks")
+
+        for worker in workers:
+            worker.join(timeout=10)
+            if worker.is_alive():
+                worker.terminate()
+
+        logger.info(f"Parallel generation complete. Generated {len(saved_chunk_paths)} chunks")
+
+        saved_chunk_paths.sort()
+        return [Path(p) for p in saved_chunk_paths]
+
+    def _init_tts_model(self):
+        """Initialize the TTS model."""
+        try:
+            from ..models.tts_model import TTSModel
+            self.tts_model = TTSModel.load_model()
+            logger.info("TTS model loaded successfully")
+        except Exception as e:
+            logger.error(f"Failed to load TTS model: {e}")
+            raise
+
+    def _load_voice(self, voice_path: str):
+        """Load voice conditioning."""
+        try:
+            voice_state = self.tts_model.get_state_for_audio_prompt(voice_path, truncate=True)
+            logger.info(f"Voice loaded: {voice_path}")
+            return voice_state
+        except Exception as e:
+            logger.error(f"Failed to load voice {voice_path}: {e}")
+            raise
+
+    def _generate_chunk_audio(self, chunk: ChunkMetadata, voice_state):
+        """Generate audio for a single chunk."""
+        try:
+            logger.debug(f"_generate_chunk_audio called for chunk: '{chunk.text[:30]}...'")
+
+            # Get TTS parameters from chunk (handle both dict and object formats)
+            tts_params = chunk.tts_params
+            if hasattr(tts_params, 'temperature'):  # TTSParams object
+                temperature = tts_params.temperature
+                frames_after_eos = tts_params.frames_after_eos
+                eos_threshold = tts_params.eos_threshold
+            else:  # dict format from JSON/metadata
+                temperature = tts_params.get('temperature', 0.7)
+                frames_after_eos = tts_params.get('frames_after_eos', 2)
+                eos_threshold = tts_params.get('eos_threshold', -4.0)
+
+            logger.debug(f"TTS parameters: temp={temperature}, frames_after_eos={frames_after_eos}, eos_threshold={eos_threshold}")
+
+            # Update model parameters
+            if hasattr(self.tts_model, 'temp'):
+                logger.debug(f"Setting model temperature to {temperature}")
+                self.tts_model.temp = float(temperature)
+            if hasattr(self.tts_model, 'eos_threshold'):
+                logger.debug(f"Setting model eos_threshold to {eos_threshold}")
+                self.tts_model.eos_threshold = float(eos_threshold)
+            lsd_steps = getattr(self.config, 'quality', {}).get('lsd_steps', 2)
+            if hasattr(self, 'lsd_steps_spin'):
+                lsd_steps = self.lsd_steps_spin.value()
+            logger.debug(f"Using LSD steps: {lsd_steps}")
+            self.tts_model.lsd_decode_steps = lsd_steps
+
+            # Generate audio with optional pause injection
+            if getattr(self, '_pause_injection_enabled', False):
+                logger.debug("Pause injection enabled, injecting pauses at punctuation...")
+                from ..preprocessing.pause_injector import (
+                    inject_pauses_for_punctuation,
+                    generate_audio_with_pauses
+                )
+                injected_text = inject_pauses_for_punctuation(
+                    chunk.text,
+                    self._pause_durations
+                )
+                logger.debug(f"Injected text: {repr(injected_text[:60])}")
+                audio, _ = generate_audio_with_pauses(
+                    self.tts_model,
+                    voice_state,
+                    injected_text
+                )
+            else:
+                logger.debug("Calling self.tts_model.generate_audio...")
+                audio = self.tts_model.generate_audio(
+                    voice_state,
+                    chunk.text,
+                    frames_after_eos=frames_after_eos
+                )
+
+            # --- POST-PROCESSING SILENCE INSERTION ---
+            # Retrieve calculated digital silence duration
+            silence_duration_sec = chunk.post_process.get('silence_duration', 0.0)
+
+            if silence_duration_sec > 0:
+                import torch
+                # Calculate number of zero samples to append
+                # sample_rate is typically 24000
+                sample_rate = getattr(self.tts_model, 'sample_rate', 24000)
+                num_silence_samples = int(silence_duration_sec * sample_rate)
+
+                logger.debug(f"Appending {silence_duration_sec:.2f}s digital silence ({num_silence_samples} samples)")
+
+                # Create zero tensor on same device as audio
+                # audio shape is likely [samples] or [1, samples]
+                # Check shape to match dimensions
+                if len(audio.shape) == 1:
+                    silence_tensor = torch.zeros(num_silence_samples, device=audio.device)
+                    audio = torch.cat([audio, silence_tensor], dim=0)
+                else:
+                    # Assume [channels, samples] format if 2D
+                    silence_tensor = torch.zeros(audio.shape[0], num_silence_samples, device=audio.device)
+                    audio = torch.cat([audio, silence_tensor], dim=1)
+
+            logger.debug(f"Audio generation successful: {len(audio) if len(audio.shape)==1 else audio.shape[1]} samples returned")
+            return audio
+
+        except Exception as e:
+            logger.error(f"Failed to generate audio for chunk: {e}")
+            logger.error(f"Failed chunk details: text='{chunk.text[:100]}...', params={chunk.tts_params}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            return None
+
+    def _combine_audio_chunks(self, audio_chunks):
+        """Combine multiple audio tensors into one."""
+        import torch
+        return torch.cat(audio_chunks, dim=0)
+
+    def _save_audio(self, audio, output_path: str):
+        """Save audio tensor to WAV file in PCM format."""
+        try:
+            import scipy.io.wavfile
+            # Convert to numpy and ensure proper format for WAV
+            sample_rate = getattr(self.tts_model, 'sample_rate', 24000)
+            # Convert to int16 PCM format that wave module can read
+            audio_int16 = (audio.clamp(-1, 1) * 32767).short().numpy()
+            scipy.io.wavfile.write(output_path, sample_rate, audio_int16)
+            logger.info(f"Audio saved to {output_path}")
+        except Exception as e:
+            logger.error(f"Failed to save audio: {e}")
+            raise
+
+
+
+    def _concatenate_from_files(self, chunk_paths: List[Path], output_path: Union[str, Path]):
+        """Concatenate saved WAV files into final audiobook."""
+
+        if not chunk_paths:
+            raise ValueError("No chunk files found to concatenate.")
+
+        # Load and concatenate in order
+        audio_chunks = []
+        for chunk_path in sorted(chunk_paths):  # Ensure 00000, 00001, ... order
+            # Load individual WAV file
+            chunk_audio, _ = audio_read(chunk_path)
+            audio_chunks.append(chunk_audio)
+
+        # Concatenate all chunks along time dimension (dim=1 for [channels, samples])
+        final_audio = torch.cat(audio_chunks, dim=1)
+
+        # Squeeze to remove channel dimension for mono audio
+        final_audio = final_audio.squeeze(0)
+
+        # Save final combined audio
+        self._save_audio(final_audio, str(output_path))
+
+        # Clear memory
+        del audio_chunks, final_audio
+
+    def _save_chunks_json(self, chunks: List[ChunkMetadata], output_path: Union[str, Path], voice_path: str, source_file: str, dataset_paths: Dict[str, Union[str, Path]], is_preliminary: bool = False):
+        """Save chunk data to JSON file in text_chunks directory."""
+        try:
+            import json
+            from datetime import datetime
+
+            json_path = Path(dataset_paths['text_chunks_dir']) / 'audiobook.chunks.json'
+
+            # Build metadata
+            output_path_obj = Path(output_path)
+            metadata = {
+                'source_file': source_file,
+                'output_filename': output_path_obj.name,  # Actual dynamic filename
+                'output_directory': str(output_path_obj.parent),
+                'voice_used': voice_path,
+                'generation_timestamp': datetime.now().isoformat(),
+                'total_chunks': len(chunks)
+            }
+
+            # Add generation statistics if available (final save) or null placeholders (preliminary)
+            if not is_preliminary:
+                # Final save - include generation statistics
+                total_time = time.time() - getattr(self, 'start_time', time.time())
+                audio_duration = getattr(self, 'audio_duration', 0)
+                metadata.update({
+                    'processing_time': total_time,
+                    'realtime_factor': audio_duration / total_time if total_time > 0 else 0,
+                    'chunks_processed': getattr(self, 'current_chunk', 0) + 1,
+                    'audio_duration': audio_duration
+                })
+            else:
+                # Preliminary save - null placeholders
+                metadata.update({
+                    'processing_time': None,
+                    'realtime_factor': None,
+                    'chunks_processed': None,
+                    'audio_duration': None
+                })
+
+            # Build chunks data
+            chunks_data = []
+            for chunk in chunks:
+                chunk_dict = {
+                    'index': chunk.index,
+                    'text': chunk.text.strip(),  # Clean text
+                    'word_count': chunk.word_count,
+                    'character_count': chunk.character_count,
+                    'boundary_type': chunk.boundary_type.value,
+                    'punctuation': chunk.punctuation,
+                    'start_position': chunk.start_position,
+                    'end_position': chunk.end_position,
+                    'emotion': chunk.emotion.value if chunk.emotion else None,
+                    'emotion_scores': chunk.emotion_scores,
+                    'emotion_confidence': chunk.emotion_confidence,
+                     'tts_params': dataclasses.asdict(chunk.tts_params) if isinstance(chunk.tts_params, TTSParams) else chunk.tts_params,
+                    'post_process': chunk.post_process,
+                    'chapter_number': chunk.chapter_number,
+                    'is_dialogue': chunk.is_dialogue,
+                    'has_emphasis': chunk.has_emphasis
+                }
+                chunks_data.append(chunk_dict)
+
+            # Create final JSON structure
+            json_data = {
+                '_metadata': metadata,
+                'chunks': chunks_data
+            }
+
+            # Save to file
+            with open(json_path, 'w', encoding='utf-8') as f:
+                json.dump(json_data, f, indent=2, ensure_ascii=False)
+
+            logger.info(f"Chunk data saved to {json_path}")
+
+        except Exception as e:
+            logger.error(f"Failed to save chunk metadata: {e}")
+            raise
+
+    def _reprocess_failed_chunks(self, failure_log_path: str, voice_state, dataset_paths: Dict, asr_config: Dict):
+        """
+        Reprocess chunks that failed ASR validation by regenerating with lower temperature.
+        Uses self-contained data from failure log instead of looking up in current_chunks.
+        Validates each regeneration attempt and saves best result.
+        Creates investigation log for chunks where ALL attempts fail threshold.
+        """
+
+        try:
+            with open(failure_log_path, 'r') as f:
+                failures = json.load(f)
+        except Exception as e:
+            logger.warning(f"Could not read ASR failure log: {e}")
+            return []
+
+        if not failures:
+            logger.info("No ASR failures to reprocess")
+            return []
+
+        logger.info(f"Reprocessing {len(failures)} ASR-failed chunks...")
+
+        audio_chunks_dir = Path(dataset_paths['audio_chunks_dir'])
+        text_chunks_dir = Path(dataset_paths['text_chunks_dir'])
+        tts_dir = Path(dataset_paths['tts_dir'])
+        max_retries = asr_config.get('max_retries', 3)
+        temp_decrement = asr_config.get('temp_decrement', 0.1)
+        threshold = asr_config.get('threshold', 0.85)
+
+        # Create Failed subdirectory for organizing debug files
+        failed_dir = audio_chunks_dir / "Failed"
+        failed_dir.mkdir(exist_ok=True)
+        logger.info(f"ASR debug files will be organized in: {failed_dir}")
+
+        reprocessed_count = 0
+        failed_permanently = 0
+        investigation_log = []
+
+        for failure in failures:
+            chunk_index = failure.get('chunk_index')
+            original_score = failure.get('score', 0)
+            chunk_num = f"{chunk_index:05d}"
+            chunk_filename = f"chunk_{chunk_num}.wav"
+            original_chunk_path = audio_chunks_dir / chunk_filename
+
+            chunk_text = failure.get('text', '')
+            tts_params = failure.get('tts_params', {})
+            post_process = failure.get('post_process', {})
+
+            if not chunk_text:
+                text_filename = f"chunk_{chunk_num}.txt"
+                text_path = text_chunks_dir / text_filename
+                if text_path.exists():
+                    try:
+                        with open(text_path, 'r', encoding='utf-8') as f:
+                            chunk_text = f.read()
+                    except Exception as e:
+                        logger.warning(f"Could not read text file for chunk {chunk_num}: {e}")
+                        continue
+                else:
+                    logger.warning(f"No text data available for chunk {chunk_num}, skipping")
+                    continue
+
+            current_temp = tts_params.get('temperature', 0.7)
+            frames_after_eos = tts_params.get('frames_after_eos', 2)
+
+            candidates = []
+            best_score = float("-inf")
+            best_asr_result = None
+
+            # Track original as a candidate if it exists
+            if original_chunk_path.exists():
+                original_asr_result = {
+                    "hyp_text_raw": failure.get("transcribed_text", ""),
+                    "transcribed_text": failure.get("transcribed_text", ""),
+                    "explanation": failure.get("explanation", ""),
+                    "prose_score": failure.get("prose_score", 0.0),
+                    "id_score": failure.get("id_score", 0.0),
+                    "score": original_score,
+                    "hallucination_warning": failure.get("hallucination_warning", ""),
+                    "truncation_warning": failure.get("truncation_warning", "")
+                }
+
+                candidates.append({
+                    "attempt": 0,
+                    "temp": None,
+                    "score": original_score,
+                    "audio": None,
+                    "audio_path": str(original_chunk_path),
+                    "asr_result": original_asr_result,
+                    "is_original": True
+                })
+                best_score = original_score
+                best_asr_result = original_asr_result
+            else:
+                logger.warning(f"Original chunk {chunk_num} not found - using regeneration attempts only")
+
+            try:
+                for retry in range(max_retries):
+                    retry_temp = max(0.1, current_temp - (retry * temp_decrement))
+                    temp_filename = f"chunk_{chunk_num}_attempt_{retry + 1}.wav"
+                    temp_path = audio_chunks_dir / temp_filename
+
+                    logger.info(f"Regenerating chunk {chunk_num} attempt {retry + 1}/{max_retries} with temp={retry_temp:.2f}")
+
+                    if hasattr(self.tts_model, 'temp'):
+                        self.tts_model.temp = float(retry_temp)
+
+                    audio = self.tts_model.generate_audio(
+                        voice_state,
+                        chunk_text,
+                        frames_after_eos=frames_after_eos
+                    )
+
+                    if audio is not None:
+                        silence_duration = post_process.get('silence_duration', 0.0)
+                        if silence_duration > 0:
+                            import torch
+                            sample_rate = getattr(self.tts_model, 'sample_rate', 24000)
+                            num_silence_samples = int(silence_duration * sample_rate)
+                            if len(audio.shape) == 1:
+                                silence_tensor = torch.zeros(num_silence_samples, device=audio.device)
+                                audio = torch.cat([audio, silence_tensor], dim=0)
+
+                        self._save_audio(audio, str(temp_path))
+
+                        attempt_chunk_id = f"chunk_{chunk_num}"
+                        asr_result = self._validate_chunk_asr(
+                            attempt_chunk_id,
+                            str(tts_dir),
+                            threshold,
+                            audio_path=str(temp_path)
+                        )
+                        score = asr_result.get('score', 0.0)
+
+                        attempt_info = {
+                            "attempt": retry + 1,
+                            "temp": retry_temp,
+                            "score": score,
+                            "audio": audio,
+                            "audio_path": str(temp_path),
+                            "asr_result": asr_result,
+                            "is_original": False
+                        }
+                        candidates.append(attempt_info)
+
+                        if score > best_score:
+                            best_score = score
+                            best_asr_result = asr_result
+                    else:
+                        logger.warning(f"No audio generated for chunk {chunk_num} attempt {retry + 1}")
+
+            except Exception as e:
+                logger.error(f"Error reprocessing chunk {chunk_num}: {e}")
+                failed_permanently += 1
+                continue
+
+            if not candidates:
+                logger.warning(f"No candidates available for chunk {chunk_num}; skipping")
+                failed_permanently += 1
+                continue
+
+            winner = max(candidates, key=lambda x: x['score'])
+            winner_is_original = winner.get("is_original", False)
+
+            if winner_is_original:
+                # Original stays in main directory; move all attempt files to Failed/
+                for candidate in candidates:
+                    if not candidate.get("is_original"):
+                        temp_path = Path(candidate["audio_path"])
+                        if temp_path.exists():
+                            failed_attempt_path = failed_dir / f"chunk_{chunk_num}_attempt_{candidate['attempt']}.wav"
+                            try:
+                                temp_path.rename(failed_attempt_path)
+                            except Exception as e:
+                                logger.warning(f"Could not move attempt file {temp_path} to Failed/: {e}")
+                                try:
+                                    temp_path.unlink(missing_ok=True)
+                                except Exception:
+                                    pass
+            else:
+                # Regeneration wins: move original to Failed/ before saving winner
+                if original_chunk_path.exists():
+                    original_failed_path = failed_dir / chunk_filename
+                    try:
+                        original_chunk_path.rename(original_failed_path)
+                    except Exception as e:
+                        logger.warning(f"Could not move original chunk {chunk_num} to Failed/: {e}")
+
+                final_path = audio_chunks_dir / chunk_filename
+                if winner.get("audio") is not None:
+                    self._save_audio(winner["audio"], str(final_path))
+
+                # Move losing attempts to Failed/
+                for candidate in candidates:
+                    if candidate is winner:
+                        continue
+                    if not candidate.get("is_original"):
+                        temp_path = Path(candidate["audio_path"])
+                        if temp_path.exists():
+                            failed_attempt_path = failed_dir / f"chunk_{chunk_num}_attempt_{candidate['attempt']}.wav"
+                            try:
+                                temp_path.rename(failed_attempt_path)
+                            except Exception as e:
+                                logger.warning(f"Could not move attempt file {temp_path} to Failed/: {e}")
+                                try:
+                                    temp_path.unlink(missing_ok=True)
+                                except Exception:
+                                    pass
+
+                # Clean up winner temp file if it still exists
+                winner_temp_path = Path(winner["audio_path"])
+                if winner_temp_path.exists():
+                    try:
+                        winner_temp_path.unlink(missing_ok=True)
+                    except Exception:
+                        pass
+
+            logger.info(f"Chunk {chunk_num} regeneration complete - best score: {best_score:.3f}")
+            reprocessed_count += 1
+
+            if best_score < threshold:
+                original_asr = {
+                    "score": original_score,
+                    "original_text": failure.get("original_text", ""),
+                    "transcribed_text": failure.get("transcribed_text", ""),
+                    "explanation": failure.get("explanation", ""),
+                    "prose_score": failure.get("prose_score", 0.0),
+                    "id_score": failure.get("id_score", 0.0)
+                }
+
+                investigation_log.append({
+                    "chunk_index": chunk_index,
+                    "chunk_num": chunk_num,
+                    "best_score": best_score,
+                    "threshold": threshold,
+                    "best_attempt": winner,
+                    "all_attempts": candidates,
+                    "text": chunk_text,
+                    "original_asr": original_asr
+                })
+
+        logger.info(f"ASR reprocessing complete: {reprocessed_count} reprocessed, {failed_permanently} permanently failed")
+        logger.info(f"ASR debug files organized in: {failed_dir}")
+
+        if investigation_log:
+            self._save_investigation_log(investigation_log, dataset_paths)
+            logger.info(f"Investigation log created for {len(investigation_log)} chunks")
+
+        logger.info(f"ASR failure log preserved at: {failure_log_path}")
+        return investigation_log
+
+    def _validate_chunk_asr(self, chunk_num: str, tts_dir: str, threshold: float, audio_path: str | None = None) -> Dict[str, Any]:
+        """Validate a single chunk by calling ASR validator via subprocess."""
+        import subprocess
+        import json
+        from pathlib import Path
+
+        try:
+            project_root = Path(__file__).parent.parent.parent
+
+            asr_exe = 'ASR/venv/bin/python'
+            if hasattr(self.config, 'asr_quality_control') and hasattr(self.config.asr_quality_control, 'executable_path'):
+                asr_exe = self.config.asr_quality_control.executable_path
+            elif isinstance(self.config, dict) and 'asr_quality_control' in self.config:
+                asr_exe = self.config['asr_quality_control'].get('executable_path', 'ASR/venv/bin/python')
+
+            asr_script = project_root / 'ASR' / 'asr_validator.py'
+
+            if not Path(asr_exe).is_absolute():
+                asr_exe = project_root / asr_exe
+
+            # Don't resolve virtual environment executable symlinks - they need their path context
+            if 'venv' not in str(asr_exe) and 'virtualenv' not in str(asr_exe):
+                asr_exe = str(asr_exe.resolve())
+            asr_exe = str(asr_exe)
+
+            asr_script = str(asr_script.resolve())
+
+            if not Path(asr_exe).exists():
+                logger.warning(f"ASR executable not found: {asr_exe}")
+                return {'score': 1.0, 'passed': True, 'error': 'ASR executable not found'}
+            if not Path(asr_script).exists():
+                logger.warning(f"ASR validator script not found: {asr_script}")
+                return {'score': 1.0, 'passed': True, 'error': 'ASR validator not available'}
+
+            working_dir = Path(tts_dir)
+            command = [
+                asr_exe, asr_script,
+                '--single-chunk', chunk_num,
+                '--tts-dir', str(working_dir),
+                '--threshold', str(threshold),
+                '--json'
+            ]
+
+            if audio_path:
+                command.extend(['--audio-path', audio_path])
+
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                timeout=120
+            )
+
+            if result.returncode == 0:
+                try:
+                    output = result.stdout.strip()
+                    if output.startswith('{'):
+                        return json.loads(output)
+                    else:
+                        return {'score': 1.0, 'passed': True, 'error': 'Non-JSON output'}
+                except json.JSONDecodeError as e:
+                    return {'score': 1.0, 'passed': True, 'error': f'Invalid JSON output: {e}'}
+            else:
+                error_msg = result.stderr.strip() if result.stderr else 'Unknown error'
+                logger.warning(f"ASR validation failed for {chunk_num}: {error_msg}")
+                return {'score': 0.0, 'passed': False, 'error': error_msg}
+
+        except subprocess.TimeoutExpired:
+            logger.warning(f"ASR validation timeout for {chunk_num}")
+            return {'score': 0.0, 'passed': False, 'error': 'Validation timeout'}
+        except Exception as e:
+            logger.warning(f"ASR validation error for {chunk_num}: {e}")
+            return {'score': 0.0, 'passed': False, 'error': str(e)}
+
+    def _save_investigation_log(self, investigation_log: List[Dict], dataset_paths: Dict):
+        """Save detailed investigation log for chunks that failed regeneration threshold."""
+        log_path = Path(dataset_paths['tts_dir']) / "asr_investigation.log"
+
+        with open(log_path, 'w', encoding='utf-8') as f:
+            f.write("ASR Regeneration Investigation Report\n")
+            f.write("=" * 50 + "\n")
+            f.write(f"Generated: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
+            f.write(f"Chunks requiring investigation: {len(investigation_log)}\n\n")
+
+            for entry in investigation_log:
+                chunk_id = f"chunk_{entry['chunk_index']:05d}"
+                best_attempt = entry['best_attempt']
+                asr_result = best_attempt.get('asr_result', {})
+                original_asr = entry['original_asr']
+                best_attempt_id = (best_attempt.get('attempt'), best_attempt.get('is_original', False))
+
+                f.write(f"CHUNK: {chunk_id}\n")
+                f.write(f"Status: FAILED (Score: {entry['best_score']:.3f})\n")
+                if best_attempt.get('is_original'):
+                    f.write(f"Best available: Original (Score: {entry['best_score']:.3f})\n")
+                else:
+                    f.write(f"Best regeneration attempt: {best_attempt['attempt']} (Temp: {best_attempt['temp']:.2f})\n")
+                f.write(f"Original Text: {original_asr.get('original_text', 'N/A')}\n")
+                f.write(f"Transcribed Text: {asr_result.get('hyp_text_raw', asr_result.get('transcribed_text', 'N/A'))}\n")
+                f.write(f"Explanation: {asr_result.get('explanation', asr_result.get('explanation', 'N/A'))}\n")
+                f.write("-" * 40 + "\n")
+
+                f.write(f"Prose Score: {asr_result.get('prose_score', 0):.3f}, ")
+                f.write(f"ID Score: {asr_result.get('id_score', 0):.3f}, ")
+                f.write(f"Combined: {asr_result.get('score', 0):.3f}\n")
+
+                if asr_result.get('hallucination_warning'):
+                    f.write(f"Hallucination: {asr_result['hallucination_warning']}\n")
+                else:
+                    f.write("Hallucination: None detected\n")
+
+                if asr_result.get('truncation_warning'):
+                    f.write(f"Truncation: {asr_result['truncation_warning']}\n")
+                else:
+                    f.write("Truncation: None detected\n")
+
+                f.write("\nRegeneration Attempts:\n")
+                for attempt in entry['all_attempts']:
+                    attempt_id = (attempt.get('attempt'), attempt.get('is_original', False))
+                    if attempt.get('is_original'):
+                        saved_marker = " (SAVED - Best available)" if attempt_id == best_attempt_id else ""
+                        f.write(f"  ORIGINAL: Score={attempt['score']:.3f}{saved_marker}\n")
+                        continue
+
+                    status = "✓" if attempt['score'] >= entry['threshold'] else "✗"
+                    saved_marker = " (SAVED - Best available)" if attempt_id == best_attempt_id else ""
+                    f.write(f"  {status} Attempt {attempt['attempt']}: Temp={attempt['temp']:.2f}, Score={attempt['score']:.3f}{saved_marker}\n")
+
+                f.write("\n" + "=" * 50 + "\n\n")
+
+        logger.info(f"ASR investigation log saved: {log_path}")
+
+
+# Dynamic queue-based worker for parallel processing
+def _queue_worker(chunk_queue: Any, voice_path: str, output_dir: str, result_queue: Any, worker_id: int,
+                  pause_injection_enabled: bool = False, pause_durations: Dict[str, float] = None):
+    """
+    Worker process with model pooling - loads TTS model and voice once, processes multiple chunks.
+    Eliminates model/voice reload overhead for subsequent chunks in the same worker.
+
+    Args:
+        chunk_queue: Queue containing (index, chunk) tuples, or (None, None) to signal exit
+        voice_path: Path to voice file
+        output_dir: Directory to save audio chunks
+        result_queue: Queue to send results back to main process
+        worker_id: ID of this worker for logging
+        pause_injection_enabled: Whether to enable pause injection at punctuation
+        pause_durations: Dict mapping punctuation to pause duration in seconds
+    """
+    if pause_durations is None:
+        pause_durations = {}
+    import logging
+    import os
+    from pathlib import Path
+    import tempfile
+    import traceback
+
+    worker_logger = logging.getLogger("pocket_tts.audiobook.generator")
+
+    try:
+        from ..models.tts_model import TTSModel
+
+        # LOAD MODEL ONCE AT WORKER STARTUP (major optimization)
+        worker_logger.info(f"Worker {worker_id}: Loading TTS model (once per worker)")
+        model_load_start = time.time()
+        tts_model = TTSModel.load_model()
+        model_load_time = time.time() - model_load_start
+        worker_logger.info(f"Worker {worker_id}: Model loaded in {model_load_time:.3f}s")
+
+        # HANDLE VOICE CONVERSION IF NEEDED
+        if os.path.isfile(voice_path):
+            from ..data.voice_converter import VoicePromptConverter
+            converter = VoicePromptConverter()
+            temp_dir = Path(tempfile.gettempdir()) / f"pocket_tts_worker_{os.getpid()}"
+            temp_dir.mkdir(exist_ok=True)
+            converted_path = converter.convert(voice_path, temp_dir)
+            worker_logger.info(f"Worker {worker_id}: Converted voice to {converted_path}")
+            voice_path = str(converted_path)
+
+        # LOAD VOICE STATE ONCE AT WORKER STARTUP (major optimization)
+        worker_logger.info(f"Worker {worker_id}: Loading voice state (once per worker)")
+        voice_load_start = time.time()
+        voice_state = tts_model.get_state_for_audio_prompt(voice_path, truncate=True)
+        voice_load_time = time.time() - voice_load_start
+        worker_logger.info(f"Worker {worker_id}: Voice loaded in {voice_load_time:.3f}s")
+
+        worker_logger.info(f"Worker {worker_id}: Ready to process chunks (no reload overhead)")
+
+        # TRACK PERFORMANCE AND ERRORS
+        chunks_processed = 0
+        total_generation_time = 0.0
+        total_io_time = 0.0
+
+        while True:
+            try:
+                chunk_data = chunk_queue.get(timeout=30)
+            except Exception:
+                worker_logger.warning(f"Worker {worker_id}: Timeout waiting for chunk, exiting")
+                break
+
+            if chunk_data[0] is None and chunk_data[1] is None:
+                # Pass sentinel to other workers and exit
+                chunk_queue.put((None, None))
+                break
+
+            global_index, chunk = chunk_data
+
+            try:
+                # GENERATE AUDIO (NO MODEL/VOICE RELOAD OVERHEAD!)
+                gen_start = time.time()
+
+                tts_params = chunk.tts_params
+                if hasattr(tts_params, 'temperature'):
+                    temperature = tts_params.temperature
+                    frames_after_eos = tts_params.frames_after_eos
+                else:
+                    temperature = tts_params.get('temperature', 0.7)
+                    frames_after_eos = tts_params.get('frames_after_eos', 2)
+
+                if hasattr(tts_model, 'temp'):
+                    tts_model.temp = float(temperature)
+
+                # Generate audio with optional pause injection
+                if pause_injection_enabled and pause_durations:
+                    from pocket_tts.preprocessing.pause_injector import (
+                        inject_pauses_for_punctuation,
+                        generate_audio_with_pauses
+                    )
+                    injected_text = inject_pauses_for_punctuation(chunk.text, pause_durations)
+                    audio, _ = generate_audio_with_pauses(tts_model, voice_state, injected_text)
+                else:
+                    audio = tts_model.generate_audio(
+                        voice_state,
+                        chunk.text,
+                        frames_after_eos=frames_after_eos
+                    )
+
+                gen_time = time.time() - gen_start
+                total_generation_time += gen_time
+
+                # ADD SILENCE IF NEEDED
+                silence_duration_sec = chunk.post_process.get('silence_duration', 0.0)
+                if silence_duration_sec > 0:
+                    import torch
+                    sample_rate = getattr(tts_model, 'sample_rate', 24000)
+                    num_silence_samples = int(silence_duration_sec * sample_rate)
+
+                    if len(audio.shape) == 1:
+                        silence_tensor = torch.zeros(num_silence_samples, device=audio.device)
+                        audio = torch.cat([audio, silence_tensor], dim=0)
+                    else:
+                        silence_tensor = torch.zeros(audio.shape[0], num_silence_samples, device=audio.device)
+                        audio = torch.cat([audio, silence_tensor], dim=1)
+
+                # SAVE AUDIO FILE
+                io_start = time.time()
+
+                chunk_filename = f"chunk_{global_index:05d}.wav"
+                chunk_path = Path(output_dir) / chunk_filename
+
+                import scipy.io.wavfile
+                sample_rate = getattr(tts_model, 'sample_rate', 24000)
+                audio_int16 = (audio.clamp(-1, 1) * 32767).short().numpy()
+                scipy.io.wavfile.write(str(chunk_path), sample_rate, audio_int16)
+
+                # SAVE TEXT FILE FOR ASR VALIDATION
+                text_chunks_dir = Path(output_dir).parent / "text_chunks"
+                text_chunks_dir.mkdir(parents=True, exist_ok=True)
+                text_filename = chunk_filename.replace('.wav', '.txt')
+                text_file = text_chunks_dir / text_filename
+                with open(text_file, 'w', encoding='utf-8') as f:
+                    f.write(chunk.text)
+
+                io_end = time.time()
+                io_time = io_end - io_start
+                total_io_time += io_time
+
+                chunks_processed += 1
+
+                worker_logger.info(f"Worker {worker_id}: Chunk {global_index} - "
+                                  f"gen={gen_time:.3f}s, io={io_time:.3f}s")
+
+                result_queue.put((str(chunk_path), global_index, chunk.text[:50]))
+
+                # CLEANUP (no per-chunk GC as requested in testing)
+                del audio
+                if 'torch' in globals():
+                    import torch
+                    torch.cuda.empty_cache()
+
+            except Exception as e:
+                # LOG ERROR BUT CONTINUE PROCESSING OTHER CHUNKS
+                worker_logger.error(f"Worker {worker_id}: FAILED chunk {global_index}: {e}")
+                worker_logger.error(traceback.format_exc())
+                result_queue.put((None, global_index, chunk.text[:50] if chunk else ''))
+
+        # WORKER SUMMARY
+        avg_gen = total_generation_time / chunks_processed if chunks_processed > 0 else 0
+        avg_io = total_io_time / chunks_processed if chunks_processed > 0 else 0
+        worker_logger.info(f"Worker {worker_id}: Exiting - processed {chunks_processed} chunks, "
+                          f"avg_gen={avg_gen:.3f}s, avg_io={avg_io:.3f}s")
+
+    except Exception as e:
+        worker_logger.error(f"Worker {worker_id}: Fatal error: {e}")
+        worker_logger.error(traceback.format_exc())
+        result_queue.put((None, -1, ''))
