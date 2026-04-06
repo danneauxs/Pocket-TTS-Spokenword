@@ -45,6 +45,22 @@ Navigate to the https://kyutai.org/tts to try basic TTS functionality directly i
 # Installation
 
 How to install:
+This project uses uv, an extremely fast Python package manager.
+
+1. Install uv
+Linux & Windows (WSL)
+Open your terminal and run the following command:
+
+Bash
+curl -LsSf https://astral.sh/uv/install.sh | sh
+Note: After installation, you may need to restart your terminal or run source $HOME/.local/bin/env to add uv to your PATH.
+
+Windows (PowerShell)
+If you are using standard Windows PowerShell (not WSL), run:
+
+PowerShell
+powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
+
 
 ```bash
 instasll.sh
