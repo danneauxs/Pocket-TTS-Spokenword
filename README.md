@@ -6,6 +6,8 @@
 
 An enhanced version of Kyutai's Pocket TTS that transforms plain text into emotionally expressive audiobooks. Uses advanced AI emotion analysis to create natural, expressive narration with intelligent text chunking and voice adaptation.
 
+** DISCORD https://discord.gg/6hs3r3Wp
+
 **✨ Key Features:**
 
 - **Emotion Analysis**: Automatic detection of emotions in text using DistilRoBERTa
