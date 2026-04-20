@@ -873,11 +873,12 @@ class AudiobookGenerator:
                     self._pause_durations
                 )
                 logger.debug(f"Injected text: {repr(injected_text[:60])}")
-                audio, _ = generate_audio_with_pauses(
+                audio, pauses = generate_audio_with_pauses(
                     self.tts_model,
                     voice_state,
                     injected_text
                 )
+                chunk.pause_events = pauses if pauses else None
             else:
                 logger.debug("Calling self.tts_model.generate_audio...")
                 audio = self.tts_model.generate_audio(
@@ -1020,11 +1021,12 @@ class AudiobookGenerator:
                     'emotion': chunk.emotion.value if chunk.emotion else None,
                     'emotion_scores': chunk.emotion_scores,
                     'emotion_confidence': chunk.emotion_confidence,
-                     'tts_params': dataclasses.asdict(chunk.tts_params) if isinstance(chunk.tts_params, TTSParams) else chunk.tts_params,
+                      'tts_params': dataclasses.asdict(chunk.tts_params) if isinstance(chunk.tts_params, TTSParams) else chunk.tts_params,
                     'post_process': chunk.post_process,
                     'chapter_number': chunk.chapter_number,
                     'is_dialogue': chunk.is_dialogue,
-                    'has_emphasis': chunk.has_emphasis
+                    'has_emphasis': chunk.has_emphasis,
+                    'pause_events': chunk.pause_events
                 }
                 chunks_data.append(chunk_dict)
 

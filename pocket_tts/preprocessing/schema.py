@@ -86,6 +86,7 @@ class ChunkMetadata:
     chapter_number: Optional[int] = None
     is_dialogue: bool = False
     has_emphasis: bool = False
+    pause_events: Optional[List[Dict[str, Any]]] = None
 
 @dataclass
 class AudiobookMetadata:

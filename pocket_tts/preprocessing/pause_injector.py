@@ -12,33 +12,19 @@ from typing import List, Tuple, Dict, Any
 
 logger = logging.getLogger(__name__)
 
-PAUSE_RE = re.compile(r"\[(\d+(?:\.\d+)?)s\]")
+PAUSE_RE = re.compile(r"\[([\d.]+)s\]")
 
 # Order matters: longer patterns first to avoid partial replacements
 _PUNCT_ORDER = ["...", "--", ";", ":", ".", "!", "?", ","]
 
 
 def inject_pauses_for_punctuation(text: str, pause_map: Dict[str, float]) -> str:
-    """Replace punctuation characters with [Xs] pause markers.
-
-    Args:
-        text: Raw text to process.
-        pause_map: Dict mapping punctuation char to pause duration in seconds.
-                  E.g. {'.': 0.3, ',': 0.12, '?': 0.4}
-
-    Returns:
-        Text with punctuation replaced by pause markers like [0.3s].
-
-    Examples:
-        >>> inject_pauses_for_punctuation("Hello, world.", {',': 0.1, '.': 0.2})
-        'Hello[0.1s] world[0.2s]'
-    """
     result = text
     for punct in _PUNCT_ORDER:
         if punct in pause_map and pause_map[punct] > 0:
             seconds = pause_map[punct]
-            marker = f"[{seconds}s]"
-            result = result.replace(punct, marker)
+            marker = f"[{seconds:.2f}s]"
+            result = re.sub(re.escape(punct) + r'(?!\w)', marker, result)
     return result
 
 
@@ -85,21 +71,10 @@ def parse_text_with_pauses(raw: str):
 
 
 def generate_audio_with_pauses(tts_model, voice_state, raw_text: str):
-    """Generate audio with pauses at [Xs] markers.
-
-    Splits text by pause markers, generates TTS audio for text segments,
-    and inserts digital silence for pauses.
-
-    Args:
-        tts_model: TTSModel instance
-        voice_state: Voice conditioning state dict from get_state_for_audio_prompt()
-        raw_text: Text with [Xs] pause markers, e.g. "Hello[0.3s] world[0.2s]"
-
-    Returns:
-        audio: Tensor of shape [samples] with TTS audio + silence at pauses
-        pauses: List of pause metadata from parsing
-    """
     events, pauses = parse_text_with_pauses(raw_text)
+    logger.debug(f"Injected text: {repr(raw_text[:100])}")
+    logger.debug(f"Parsed events: {events[:10]}")  # First 10 events
+    logger.debug(f"Parsed pauses: {pauses}")
     sr = int(getattr(tts_model, "sample_rate", 24000))
     pieces = []
     audio_dtype = None
