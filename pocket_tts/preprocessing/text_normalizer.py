@@ -24,11 +24,17 @@ from typing import Dict
 
 UNICODE_TO_ASCII: Dict[str, str] = {
     # Smart single quotes and apostrophes -> ASCII apostrophe
-    "'": "'",  # U+2019 right single quotation mark
-    "'": "'",  # U+2018 left single quotation mark
-    "'": "'",  # U+02BC modifier letter apostrophe
-    "'": "'",  # U+201A single low-9 quotation mark
-    "`": "'",  # U+0060 grave accent (often misused as apostrophe)
+
+    "\u2019": "'",  # Right single quotation mark (the one in he’s)
+    "\u2018": "'",  # Left single quotation mark
+    "\u02bc": "'",  # Modifier letter apostrophe
+    "\u201a": "'",  # Single low-9 quotation mark
+    "\u0060": "'",  # Grave accent
+#    "'": "'",  # U+2019 right single quotation mark
+#    "'": "'",  # U+2018 left single quotation mark
+#    "'": "'",  # U+02BC modifier letter apostrophe
+#    "'": "'",  # U+201A single low-9 quotation mark
+#    "`": "'",  # U+0060 grave accent (often misused as apostrophe)
 
     # Smart double quotes -> ASCII double quote
     '"': '"',  # U+201D right double quotation mark
