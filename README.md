@@ -39,7 +39,10 @@ Navigate to the https://kyutai.org/tts to try basic TTS functionality directly i
 ## Audiobook Generation Features
 
 # Installation
-
+Just a quick note.  I don't have time to properly update this.
+I've included BAT files for installing and running the program under Windows.
+I have a limited test environment for Windows but I was able to get this running without WSL.
+You must have Python 3.12 and no higher installed in Windows for it to work.
 How to install:
 This project uses uv, an extremely fast Python package manager.
 
