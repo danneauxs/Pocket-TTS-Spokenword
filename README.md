@@ -54,11 +54,39 @@ This project uses uv, an extremely fast Python package manager.
      powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
      ```
 
+### Linux Installation
+
 ```bash
-instasll.sh
+install.sh
 ```
 
 **This will download all necessary files.  You will probably need to go to the [kyutai/pocket-tts · Hugging Face](https://huggingface.co/kyutai/pocket-tts) page to accept TOS to download the model.  I suggest going there FIRST before running install.  FYI on first conversion there will be a delay as the model is downloaded.  This will take time depending on connection spped.
+
+### Windows Installation
+
+#### Option 1: Pre-built Installer (Recommended)
+
+Download `Pocket-TTS-Setup.exe` from the [GitHub Releases](https://github.com/DNXS-Spokenword/Pocket-TTS-Spokenword/releases) and run it. The installer will:
+- Extract to `%LOCALAPPDATA%\Pocket TTS`
+- Create Start Menu shortcuts
+- On first launch, automatically download and install dependencies (~2-3 GB)
+
+#### Option 2: Build Installer from Source (on Linux)
+
+```bash
+# On Linux with Wine installed:
+cd build/windows
+bash build_linux.sh
+# Creates: output/Pocket-TTS-Setup-1.0.1.exe
+
+# For detailed build instructions, see build/windows/README.md
+```
+
+**Requirements:**
+- Linux host with `wine64` installed: `sudo apt install wine64`
+- `wget` and `unzip` (usually pre-installed)
+- ~4 GB disk space
+- Internet connection for downloading dependencies
 
 Note:  if using Windows with WSL you might need to install C++ runtime etc.  Use AI to help you if needed.
 
