@@ -14,18 +14,18 @@ from pocket_tts.utils.config import FlowLMConfig
 
 
 def modulate(x, shift, scale):
-    """Modulates an input value by scaling and shifting.
+    """modulate scales and shifts an input value.
     Args:
-    x (float): The input value to be modulated.
-    shift (float): The amount to shift the input value by.
-    scale (float): The factor to scale the input value by.
+    x (float): Input value to be modulated.
+    shift (float): Value by which to shift x.
+    scale (float): Factor by which to scale x before shifting.
     Returns:
-    float: The modulated value.
-    Computes the Root Mean Square (RMS) normalization of a tensor.
+    float: Modulated value.
+    rms_norm normalizes a tensor using RMS normalization.
     Args:
     x (torch.Tensor): Input tensor to normalize.
-    alpha (torch.Tensor): Normalization factor.
-    eps (float): Small constant to avoid division by zero.
+    alpha (torch.Tensor): Scaling factor for normalization.
+    eps (float): Small constant to prevent division by zero.
     Returns:
     torch.Tensor: Normalized tensor.
     """
@@ -33,13 +33,13 @@ def modulate(x, shift, scale):
 
 
 def _rms_norm(x: torch.Tensor, alpha: torch.Tensor, eps: float):
-    """Applies RMS normalization to the input tensor `x`.
+    """Applies Root Mean Square Normalization to the input tensor.
     Args:
-    x: Input tensor to be normalized.
-    alpha: Scaling factor for the normalization.
-    eps: Small constant to prevent division by zero.
+    x: Input tensor.
+    alpha: Normalization factor.
+    eps: Epsilon value for numerical stability.
     Returns:
-    Normalized tensor with the same shape as `x`.
+    Normalized tensor.
     """
     assert x.dim() >= alpha.dim()
     x_dtype = x.dtype
@@ -49,19 +49,26 @@ def _rms_norm(x: torch.Tensor, alpha: torch.Tensor, eps: float):
 
 
 class RMSNorm(nn.Module):
+    """```python
+    A custom implementation of LayerNorm for supporting jvp operations.
+    ```
+    """
     def __init__(self, dim: int, eps: float = 1e-5):
-        """Reimplements LayerNorm to support Jacobian-vector product (JVP). Args: channels (int): Number of features for input tensor. eps (float, optional): A value added to denominator for numerical stability. Default is 1e-6. elementwise_affine (bool, optional): If set to True, this module has learnable affine parameters. Default is True. Returns: LayerNorm layer that supports JVP."""
+        """Reimplements LayerNorm to support jvp.
+        Args:
+        channels (int): Number of channels.
+        eps (float, optional): A value added to denominator for numerical stability. Default is 1e-6.
+        elementwise_affine (bool, optional): If set to True, this module has learnable affine parameters. Default is True.
+        """
         super().__init__()
         self.eps = eps
         alpha_shape = (dim,)
         self.alpha = nn.Parameter(torch.full(alpha_shape, 1.0, requires_grad=True))
 
     def forward(self, x: torch.Tensor):
-        """Reimplements LayerNorm to support jvp.
+        """Applies RMS normalization to the input tensor.
         Args:
         x (torch.Tensor): Input tensor.
-        alpha (float): Scaling factor for normalization.
-        eps (float): Small value added to variance to prevent division by zero.
         Returns:
         torch.Tensor: Normalized tensor.
         """
@@ -72,11 +79,11 @@ class LayerNorm(nn.Module):
     """Reimplementation of LayerNorm because the default one doesn't support jvp."""
 
     def __init__(self, channels, eps=1e-6, elementwise_affine=True):
-        """Initializes a normalization layer with learnable affine parameters.
+        """Initializes a normalization layer for input channels.
         Args:
-        channels (int): Number of channels in the input.
-        eps (float, optional): A value added to the denominator for numerical stability. Default: 1e-6.
-        elementwise_affine (bool, optional): If True, learnable affine parameters weight and bias are created. Default: True.
+        channels (int): Number of channels.
+        eps (float, optional): A value added to the denominator for numerical stability. Defaults to 1e-6.
+        elementwise_affine (bool, optional): If True, learnable affine transformation is applied. Defaults to True.
         Returns:
         Tensor: Normalized input tensor.
         """
@@ -87,11 +94,11 @@ class LayerNorm(nn.Module):
             self.bias = nn.Parameter(torch.zeros(channels))
 
     def forward(self, x):
-        """Applies a linear transformation to input features.
+        """Calculates the forward pass for a normalization layer.
         Args:
-        x (Tensor): Input tensor.
+        x (Tensor): Input tensor to be normalized.
         Returns:
-        Tensor: Transformed output tensor.
+        Normalized tensor.
         """
         mean = x.mean(dim=-1, keepdim=True)
         var = x.var(dim=-1, unbiased=False, keepdim=True)
@@ -107,11 +114,11 @@ class TimestepEmbedder(nn.Module):
     def __init__(
         self, hidden_size: int, frequency_embedding_size: int = 256, max_period: int = 10000
     ):
-        """Initializes a module with a linear transformation followed by a SiLU activation and another linear transformation, ending with RMSNorm. Registers frequency embeddings for positional encoding.
+        """Initializes a neural network block with linear layers, SiLU activation, another linear layer, RMSNorm, and frequency embeddings.
         Args:
-        hidden_size (int): The hidden size of the linear layers.
-        frequency_embedding_size (int, optional): The size of the frequency embedding. Defaults to 256.
-        max_period (int, optional): The maximum period for the frequency embedding calculation. Defaults to 10000.
+        hidden_size (int): The size of the hidden layer.
+        frequency_embedding_size (int): The size of the frequency embedding. Default is 256.
+        max_period (int): The maximum period for frequency embeddings. Default is 10000.
         Returns:
         None
         """
@@ -130,11 +137,11 @@ class TimestepEmbedder(nn.Module):
         )
 
     def forward(self, t):
-        """Process time series data to generate embeddings using a frequency-based approach.
+        """Applies a forward pass through a transformer's time embedding layer.
         Args:
-        t (torch.Tensor): Input tensor representing time series data.
+        t (Tensor): Input tensor representing time.
         Returns:
-        torch.Tensor: Embedded tensor with transformed features.
+        Tensor: Output tensor after applying positional encoding and MLP.
         """
         args = t * self.freqs.to(t.dtype)
         embedding = torch.cat([torch.cos(args), torch.sin(args)], dim=-1)
@@ -150,9 +157,9 @@ class ResBlock(nn.Module):
     """
 
     def __init__(self, channels):
-        """Initializes a transformer block with specified number of channels.
+        """Initializes a new instance of the class.
         Args:
-        channels (int): Number of input and output channels.
+        channels (int): The number of channels in the input and output.
         Returns:
         None
         """
@@ -171,12 +178,12 @@ class ResBlock(nn.Module):
         )
 
     def forward(self, x, y):
-        """Applies a series of transformations to input tensor x using modulation and normalization.
+        """Applies an adaptive layer normalization to input and then combines it with a gated MLP output.
         Args:
         x (Tensor): Input tensor.
         y (Tensor): Modulation tensor.
         Returns:
-        Tensor: Transformed output tensor.
+        Tensor: Output tensor after applying the final transformations.
         """
         shift_mlp, scale_mlp, gate_mlp = self.adaLN_modulation(y).chunk(3, dim=-1)
         h = modulate(self.in_ln(x), shift_mlp, scale_mlp)
@@ -190,12 +197,12 @@ class FinalLayer(nn.Module):
     """
 
     def __init__(self, model_channels, out_channels):
-        """Initializes a module for applying adaptive layer normalization and linear transformation to input data.
+        """Initializes a module for adaptive layer normalization and linear transformation.
         Args:
-        model_channels (int): Number of channels in the input data.
-        out_channels (int): Number of output channels after the linear transformation.
+        model_channels (int): Number of input channels.
+        out_channels (int): Number of output channels.
         Returns:
-        torch.Tensor: Transformed data after applying normalization, modulation, and linear transformation.
+        Tensor: Transformed tensor after normalization and linear operation.
         """
         super().__init__()
         self.norm_final = LayerNorm(model_channels, elementwise_affine=False, eps=1e-6)
@@ -205,12 +212,12 @@ class FinalLayer(nn.Module):
         )
 
     def forward(self, x, c):
-        """Forward pass of the SimpleMLPAdaLN module.
+        """Computes the forward pass through an MLP with adaptive layer normalization.
         Args:
         x (Tensor): Input tensor.
         c (Tensor): Condition tensor.
         Returns:
-        Tensor: Output tensor after applying adaptive layer normalization and a linear transformation.
+        Tensor: Output tensor after processing through the MLP.
         """
         shift, scale = self.adaLN_modulation(c).chunk(2, dim=-1)
         x = modulate(self.norm_final(x), shift, scale)
@@ -238,7 +245,7 @@ class SimpleMLPAdaLN(nn.Module):
         num_res_blocks,
         num_time_conds=1,
     ):
-        """Initializes a new instance of a neural network component.
+        """Initializes a new instance of a class.
         Args:
         in_channels (int): Number of input channels.
         model_channels (int): Number of channels in the model.
@@ -274,15 +281,7 @@ class SimpleMLPAdaLN(nn.Module):
 
     @classmethod
     def from_pydantic_config(cls, cfg: FlowLMConfig, latent_dim: int, cond_dim: int) -> Self:
-        """Applies the model to an input batch.
-        Args:
-        c (torch.Tensor): Conditional tensor.
-        s (torch.Tensor): Style tensor.
-        t (torch.Tensor): Time tensor.
-        x (torch.Tensor): Input tensor.
-        Returns:
-        torch.Tensor: Output tensor.
-        """
+        """Applies a forward pass through the model. Args: c (torch.Tensor): Conditional tensor. s (torch.Tensor): Style tensor. t (torch.Tensor): Time tensor. x (torch.Tensor): Input data. Returns: torch.Tensor - Output tensor after applying the model."""
         config = cfg.flow
 
         flow_dim = config.dim

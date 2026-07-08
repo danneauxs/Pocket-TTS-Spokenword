@@ -62,6 +62,7 @@ class AudiobookGenerator:
 
         # Progress tracking
         self.start_time = None
+        self._chunk_process_start = None
         self.current_chunk = 0
         self.total_chunks = 0
 
@@ -441,6 +442,7 @@ class AudiobookGenerator:
             # Generate audio for each chunk
             audio_chunks = []
             chunk_start_time = time.time()
+            self._chunk_process_start = time.time()
 
             logger.info("=== STARTING PARALLEL CHUNK PROCESSING ===")
             original_chunks_count = len(chunks)
@@ -552,6 +554,9 @@ class AudiobookGenerator:
                 logger.info("Audio chunks generated via parallel processing")
             logger.info(f"Final current_chunk: {self.current_chunk}")
 
+            # Stop chunk process timer
+            self._chunk_process_end = time.time()
+
             # --- ASR Quality Control Cleanup ---
             if asr_process is not None:
                 logger.info("Terminating ASR monitor...")
@@ -628,7 +633,8 @@ class AudiobookGenerator:
             # Calculate final statistics before saving JSON
             total_time = time.time() - self.start_time
             self.processing_time = total_time
-            self.realtime_factor = audio_duration / total_time if total_time > 0 else 0
+            chunk_process_time = (self._chunk_process_end - self._chunk_process_start) if self._chunk_process_end and self._chunk_process_start else total_time
+            self.realtime_factor = audio_duration / chunk_process_time if chunk_process_time > 0 else 0
             self.chunks_processed = self.current_chunk + 1
             self.audio_duration = audio_duration
 
@@ -841,12 +847,14 @@ class AudiobookGenerator:
                 temperature = tts_params.temperature
                 frames_after_eos = tts_params.frames_after_eos
                 eos_threshold = tts_params.eos_threshold
+                speed_factor = getattr(tts_params, 'speed_factor', 1.0)
             else:  # dict format from JSON/metadata
                 temperature = tts_params.get('temperature', 0.7)
                 frames_after_eos = tts_params.get('frames_after_eos', 2)
                 eos_threshold = tts_params.get('eos_threshold', -4.0)
+                speed_factor = tts_params.get('speed_factor', 1.0)
 
-            logger.debug(f"TTS parameters: temp={temperature}, frames_after_eos={frames_after_eos}, eos_threshold={eos_threshold}")
+            logger.debug(f"TTS parameters: temp={temperature}, frames_after_eos={frames_after_eos}, eos_threshold={eos_threshold}, speed_factor={speed_factor}")
 
             # Update model parameters
             if hasattr(self.tts_model, 'temp'):
@@ -886,6 +894,11 @@ class AudiobookGenerator:
                     chunk.text,
                     frames_after_eos=frames_after_eos
                 )
+
+            # --- SPEED ADJUSTMENT (emotion-based, FFmpeg atempo) ---
+            if speed_factor != 1.0:
+                logger.debug(f"Applying speed adjustment: {speed_factor:.4f}x")
+                audio = self._ffmpeg_atempo(audio, speed_factor)
 
             # --- POST-PROCESSING SILENCE INSERTION ---
             # Retrieve calculated digital silence duration
@@ -930,15 +943,61 @@ class AudiobookGenerator:
         """Save audio tensor to WAV file in PCM format."""
         try:
             import scipy.io.wavfile
+            import numpy as np
             # Convert to numpy and ensure proper format for WAV
             sample_rate = getattr(self.tts_model, 'sample_rate', 24000)
-            # Convert to int16 PCM format that wave module can read
-            audio_int16 = (audio.clamp(-1, 1) * 32767).short().numpy()
+            audio_np = audio.cpu().numpy().clip(-1.0, 1.0)
+            audio_int16 = (np.array(audio_np) * 32767).astype(np.int16)
             scipy.io.wavfile.write(output_path, sample_rate, audio_int16)
             logger.info(f"Audio saved to {output_path}")
         except Exception as e:
             logger.error(f"Failed to save audio: {e}")
             raise
+
+    def _ffmpeg_atempo(self, audio, speed_factor: float):
+        """Apply time-stretch to audio using FFmpeg's atempo filter (WSOLA).
+
+        Args:
+            audio: Torch tensor of audio samples
+            speed_factor: Playback speed multiplier (1.0 = no change, <1.0 = slower, >1.0 = faster)
+
+        Returns:
+            Stretched audio tensor with same shape and device as input
+        """
+        import subprocess
+        import tempfile
+        import torch
+        import numpy as np
+        import scipy.io.wavfile
+        from ..data.audio import audio_read
+
+        sample_rate = getattr(self.tts_model, 'sample_rate', 24000)
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            input_wav = os.path.join(tmpdir, "input.wav")
+            output_wav = os.path.join(tmpdir, "output.wav")
+
+            # Save audio to temp WAV (float32 format)
+            audio_np = audio.cpu().numpy()
+            scipy.io.wavfile.write(input_wav, sample_rate, audio_np.astype(np.float32))
+
+            # Run ffmpeg with atempo filter
+            cmd = [
+                "ffmpeg", "-y", "-i", input_wav,
+                "-filter:a", f"atempo={speed_factor}",
+                "-ar", str(sample_rate),
+                "-f", "wav", output_wav
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            if result.returncode != 0:
+                logger.warning(f"ffmpeg atempo failed: {result.stderr}")
+                return audio  # Return original on failure
+
+            # Read result back (audio_read returns torch.Tensor, not numpy)
+            stretched, _ = audio_read(output_wav)
+            stretched = stretched.squeeze().to(audio.device)
+
+        return stretched
 
 
 
@@ -1430,6 +1489,53 @@ class AudiobookGenerator:
         logger.info(f"ASR investigation log saved: {log_path}")
 
 
+def _ffmpeg_atempo_standalone(tts_model, audio, speed_factor: float):
+    """Module-level atempo helper for parallel workers (no self reference).
+
+    Args:
+        tts_model: TTSModel instance (used for sample_rate)
+        audio: Torch tensor of audio samples
+        speed_factor: Playback speed multiplier
+
+    Returns:
+        Stretched audio tensor
+    """
+    import subprocess
+    import tempfile
+    import torch
+    import numpy as np
+    import scipy.io.wavfile
+    from ..data.audio import audio_read
+
+    sample_rate = getattr(tts_model, 'sample_rate', 24000)
+
+    with tempfile.TemporaryDirectory() as tmpdir:
+        input_wav = os.path.join(tmpdir, "input.wav")
+        output_wav = os.path.join(tmpdir, "output.wav")
+
+        # Save audio to temp WAV (float32 format)
+        audio_np = audio.cpu().numpy()
+        scipy.io.wavfile.write(input_wav, sample_rate, audio_np.astype(np.float32))
+
+        # Run ffmpeg with atempo filter
+        cmd = [
+            "ffmpeg", "-y", "-i", input_wav,
+            "-filter:a", f"atempo={speed_factor}",
+            "-ar", str(sample_rate),
+            "-f", "wav", output_wav
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        if result.returncode != 0:
+            logger.warning(f"ffmpeg atempo failed: {result.stderr}")
+            return audio  # Return original on failure
+
+        # Read result back (audio_read returns torch.Tensor, not numpy)
+        stretched, _ = audio_read(output_wav)
+        stretched = stretched.squeeze().to(audio.device)
+
+    return stretched
+
+
 # Dynamic queue-based worker for parallel processing
 def _queue_worker(chunk_queue: Any, voice_path: str, output_dir: str, result_queue: Any, worker_id: int,
                   pause_injection_enabled: bool = False, pause_durations: Dict[str, float] = None):
@@ -1512,12 +1618,18 @@ def _queue_worker(chunk_queue: Any, voice_path: str, output_dir: str, result_que
                 if hasattr(tts_params, 'temperature'):
                     temperature = tts_params.temperature
                     frames_after_eos = tts_params.frames_after_eos
+                    eos_threshold = tts_params.eos_threshold
+                    speed_factor = getattr(tts_params, 'speed_factor', 1.0)
                 else:
                     temperature = tts_params.get('temperature', 0.7)
                     frames_after_eos = tts_params.get('frames_after_eos', 2)
+                    eos_threshold = tts_params.get('eos_threshold', -4.0)
+                    speed_factor = tts_params.get('speed_factor', 1.0)
 
                 if hasattr(tts_model, 'temp'):
                     tts_model.temp = float(temperature)
+                if hasattr(tts_model, 'eos_threshold'):
+                    tts_model.eos_threshold = float(eos_threshold)
 
                 # Generate audio with optional pause injection
                 if pause_injection_enabled and pause_durations:
@@ -1533,6 +1645,12 @@ def _queue_worker(chunk_queue: Any, voice_path: str, output_dir: str, result_que
                         chunk.text,
                         frames_after_eos=frames_after_eos
                     )
+
+                # --- SPEED ADJUSTMENT (emotion-based, FFmpeg atempo) ---
+                if speed_factor != 1.0:
+                    worker_logger.debug(f"Applying speed adjustment: {speed_factor:.4f}x")
+                    # Shared ffmpeg helper via the module-level _ffmpeg_atempo function
+                    audio = _ffmpeg_atempo_standalone(tts_model, audio, speed_factor)
 
                 gen_time = time.time() - gen_start
                 total_generation_time += gen_time
@@ -1558,8 +1676,10 @@ def _queue_worker(chunk_queue: Any, voice_path: str, output_dir: str, result_que
                 chunk_path = Path(output_dir) / chunk_filename
 
                 import scipy.io.wavfile
+                import numpy as _np
                 sample_rate = getattr(tts_model, 'sample_rate', 24000)
-                audio_int16 = (audio.clamp(-1, 1) * 32767).short().numpy()
+                audio_np = audio.cpu().numpy().clip(-1.0, 1.0)
+                audio_int16 = (_np.array(audio_np) * 32767).astype(_np.int16)
                 scipy.io.wavfile.write(str(chunk_path), sample_rate, audio_int16)
 
                 # SAVE TEXT FILE FOR ASR VALIDATION

@@ -30,7 +30,7 @@ class RegenerateTab(QWidget):
     """Tab for regenerating individual audio chunks."""
 
     def __init__(self):
-        """Initializes the user interface components."""
+        """Initializes the user interface."""
         super().__init__()
         self.tts_folder = None
         self.chunks_data = {}  # Dict[int, chunk_metadata]
@@ -690,7 +690,16 @@ class RegenerateTab(QWidget):
         cancel_btn = QPushButton("Cancel")
 
         def apply_emotion():
-            """Handles the application of an emotion selected by the user. Updates in-memory chunk data and closes the dialog upon clicking OK or cancels on cancellation."""
+            """This function configures a dialog for emotion selection and updates the current chunk's emotion data when the OK button is clicked. It connects the OK and Cancel buttons to their respective actions and displays the dialog. Returns None.
+            Args:
+            self (object): The parent object or class instance.
+            override_combo (QComboBox): The combo box containing available emotions.
+            dialog (QDialog): The dialog window for emotion selection.
+            btn_layout (QHBoxLayout): Layout for the OK and Cancel buttons.
+            layout (QVBoxLayout): Main layout to which the button layout is added.
+            Returns:
+            None
+            """
             selected_emotion = override_combo.currentText().lower()
             # Update in-memory chunk data (not saved to disk)
             self.current_chunk['emotion'] = selected_emotion
@@ -731,11 +740,9 @@ class RegenerateTab(QWidget):
         try:
             system = platform.system()
             if system == "Linux":
-                subprocess.Popen(["aplay", file_path],
-                               stdout=subprocess.DEVNULL,
-                               stderr=subprocess.DEVNULL)
+                subprocess.Popen(["xdg-open", file_path])
             elif system == "Darwin":  # macOS
-                subprocess.Popen(["afplay", file_path])
+                subprocess.Popen(["open", file_path])
             elif system == "Windows":
                 os.startfile(file_path)
 

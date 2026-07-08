@@ -1,8 +1,5 @@
 #!/bin/bash
 cd "$(dirname "$0")"
 
-# Load your environment
-source ~/.bashrc
-
-# Run the app using uv
-uv run python launch_gui.py
+# We tell the terminal to load the bash environment FIRST, then run the command
+mate-terminal -- bash -i -c "source ~/.bashrc; uv run python launch_gui.py; exec bash"

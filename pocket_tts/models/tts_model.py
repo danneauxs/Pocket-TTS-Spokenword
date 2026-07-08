@@ -45,14 +45,8 @@ logger = logging.getLogger(__name__)
 
 
 class TTSModel(nn.Module):
-    """TTSModel is a neural network module for Text-to-Speech (TTS) that combines a flow-based language model with configuration parameters for generating speech.
-    Parameters:
-    - flow_lm: The flow-based language model used for TTS.
-    - temp: Temperature value controlling the randomness of the generated speech.
-    - lsd_decode_steps: Number of steps for latent space decoding.
-    - noise_clamp: Optional parameter to clamp noise values during generation.
-    - eos_threshold: Threshold for end-of-sentence detection.
-    - config: Configuration object containing additional settings.
+    """Class representing a Text-to-Speech (TTS) model using a flow language model for generation.
+    Initialization parameters include the flow language model, temperature for sampling, number of decoding steps, optional noise clamp, end-of-sequence threshold, and configuration settings.
     """
     def __init__(
         self,
@@ -65,12 +59,12 @@ class TTSModel(nn.Module):
     ):
         """Initialize a new instance of the class.
         Args:
-        flow_lm (FlowLMModel): The flow language model.
-        temp (float): The temperature for sampling.
-        lsd_decode_steps (int): The number of steps for LSD decoding.
-        noise_clamp (float | None): The clamp value for noise, or None if not applicable.
-        eos_threshold: The end-of-sequence threshold.
-        config (Config): The configuration object.
+        flow_lm (FlowLMModel): The language model to use.
+        temp (float): Temperature for sampling.
+        lsd_decode_steps (int): Number of steps for LSD decoding.
+        noise_clamp (float | None): Noise clamp value, or None if not used.
+        eos_threshold: Threshold for end-of-sequence detection.
+        config (Config): Configuration object.
         """
         super().__init__()
         self.flow_lm = flow_lm
@@ -83,23 +77,25 @@ class TTSModel(nn.Module):
 
     @property
     def device(self) -> str:
-        """Get the device type of the next parameter.
+        """Returns the device type of the next parameter.
         Args:
         None
         Returns:
-        str: The device type of the next parameter.
-        Get the sample rate from the configuration.
+        str: The device type.
+        ---
+        Provides access to the sample rate configuration.
         Args:
         None
         Returns:
         int: The sample rate.
-        Create an instance from a Pydantic configuration.
+        ---
+        Creates an instance from a Pydantic config.
         Args:
-        config (Config): The Pydantic configuration.
-        temp (float): Temperature for decoding.
+        config (Config): The Pydantic config object.
+        temp (float): Temperature for sampling.
         lsd_decode_steps (int): Number of steps for LSD decoding.
-        noise_clamp (float | None): Clamping value for noise, if applicable.
-        eos_threshold: Threshold for end-of-sequence.
+        noise_clamp (float | None): Noise clamp value, or None if not applicable.
+        eos_threshold: Threshold for end-of-sentence.
         Returns:
         Self: A new instance of the class.
         """
@@ -109,9 +105,20 @@ class TTSModel(nn.Module):
     def sample_rate(self) -> int:
         """Returns the sample rate from the configuration.
         Args:
-        config (Config): The configuration object containing the sample rate.
-        Returns:
-        int: The sample rate.
+        - self: The instance of the class.
+        - Returns: An integer representing the sample rate.
+        ---
+        Initializes a TTS model from Pydantic config and additional parameters.
+        Args:
+        - cls: The class itself.
+        - config: The Pydantic config object.
+        - temp: Temperature value for decoding.
+        - lsd_decode_steps: Steps for LSD decoding.
+        - noise_clamp: Optional float to clamp noise.
+        - eos_threshold: Threshold for end-of-sentence detection.
+        - Returns: A new instance of the TTS model.
+        ---
+        Initializes a TTS model from Pydantic config with weights.
         """
         return self.config.mimi.sample_rate
 
@@ -119,15 +126,15 @@ class TTSModel(nn.Module):
     def _from_pydantic_config(
         cls, config: Config, temp, lsd_decode_steps, noise_clamp: float | None, eos_threshold
     ) -> Self:
-        """Creates a TTS model from Pydantic configuration.
+        """Constructs a TTSModel instance from a Pydantic configuration.
         Args:
-        config (Config): Configuration object.
-        temp (float): Temperature parameter for generation.
+        config (Config): The Pydantic configuration.
+        temp (float): Temperature value for generation.
         lsd_decode_steps (int): Number of steps for LSD decoding.
-        noise_clamp (Optional[float]): Clamping value for noise.
-        eos_threshold: Threshold for end-of-sequence detection.
+        noise_clamp (float | None): Clamping value for noise, or None if not applicable.
+        eos_threshold: Threshold for end-of-sentence.
         Returns:
-        Self: The created TTS model.
+        Self: The constructed TTSModel instance.
         """
         flow_lm = FlowLMModel.from_pydantic_config(
             config.flow_lm, latent_dim=config.mimi.quantizer.dimension
@@ -139,15 +146,15 @@ class TTSModel(nn.Module):
     def _from_pydantic_config_with_weights(
         cls, config: Config, temp, lsd_decode_steps, noise_clamp: float | None, eos_threshold
     ) -> Self:
-        """Initialize a TTS model from Pydantic config with specific weights.
+        """Constructs a TTS model instance from Pydantic configuration with specified weights.
         Args:
-        config: Configuration object containing model parameters.
-        temp: Temperature for generation.
-        lsd_decode_steps: Number of decoding steps.
-        noise_clamp: Noise clamp value or None.
-        eos_threshold: End-of-sequence threshold.
+        config (Config): Configuration object containing necessary parameters.
+        temp (float): Temperature value for decoding.
+        lsd_decode_steps (int): Number of steps for LSD decoding.
+        noise_clamp (float | None): Noise clamp value, optional.
+        eos_threshold: End-of-sentence threshold.
         Returns:
-        Initialized TTS model instance.
+        Self: An instance of the TTS model with initialized weights.
         """
         tts_model = cls._from_pydantic_config(
             config, temp, lsd_decode_steps, noise_clamp, eos_threshold
@@ -305,14 +312,14 @@ class TTSModel(nn.Module):
         backbone_input_latents: torch.Tensor,
         audio_conditioning: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor]:
-        """Runs a flow-based language model to generate next latent embeddings.
+        """Runs a language model flow to generate embeddings for input text and audio conditioning.
         Args:
         model_state (dict): Current state of the model.
         text_tokens (torch.Tensor): Tokens representing the input text.
-        backbone_input_latents (torch.Tensor): Latent inputs for the backbone.
-        audio_conditioning (torch.Tensor): Audio conditioning information.
+        backbone_input_latents (torch.Tensor): Latent inputs from the backbone network.
+        audio_conditioning (torch.Tensor): Conditioning information derived from audio data.
         Returns:
-        tuple[torch.Tensor, torch.Tensor]: Tuple containing output embeddings and end-of-sequence flag.
+        tuple[torch.Tensor, torch.Tensor]: A tuple containing the output embeddings and a boolean indicating if the end of sequence is reached.
         """
         text_embeddings = self.flow_lm.conditioner(TokenizedText(text_tokens))
         text_embeddings = torch.cat([text_embeddings, audio_conditioning], dim=1)
@@ -329,11 +336,11 @@ class TTSModel(nn.Module):
         return output_embeddings[:, None, :], is_eos
 
     def _encode_audio(self, audio: torch.Tensor) -> torch.Tensor:
-        """Encodes audio to latents and applies conditioning.
+        """Encodes an audio tensor to a latent representation and applies linear transformation.
         Args:
         audio (torch.Tensor): Input audio tensor.
         Returns:
-        torch.Tensor: Encoded latents with applied conditioning.
+        torch.Tensor: Transposed and transformed latent tensor.
         """
         encoded = self.mimi.encode_to_latent(audio)
         latents = encoded.transpose(-1, -2).to(torch.float32)
@@ -493,12 +500,12 @@ class TTSModel(nn.Module):
     def _generate_audio_stream_short_text(
         self, model_state: dict, text_to_generate: str, frames_after_eos: int, copy_state: bool
     ):
-        """Generates a short audio stream from text using specified parameters.
+        """Generates an audio stream for short text using a model state.
         Args:
         model_state (dict): The current state of the model.
         text_to_generate (str): The text to generate audio for.
-        frames_after_eos (int): Number of frames to include after end-of-sentence.
-        copy_state (bool): Whether to copy the model state before processing.
+        frames_after_eos (int): Number of frames to process after end-of-sentence.
+        copy_state (bool): Whether to copy the model state before modifying it.
         Returns:
         None
         """
@@ -572,13 +579,13 @@ class TTSModel(nn.Module):
         latents_queue: queue.Queue,
         result_queue: queue.Queue,
     ):
-        """Generates a response based on the provided text and updates the model state.
+        """Generates a response based on the given text and state.
         Args:
-        model_state (dict): Current state of the model.
-        text_to_generate (str): Text to generate a response for.
-        frames_after_eos (int): Number of frames after end-of-sentence to consider.
-        latents_queue (queue.Queue): Queue to hold latent values.
-        result_queue (queue.Queue): Queue to store the generated results.
+        model_state (dict): The current state of the model.
+        text_to_generate (str): The text to generate a response for.
+        frames_after_eos (int): Number of frames after end-of-sequence.
+        latents_queue (queue.Queue): Queue for latent data.
+        result_queue (queue.Queue): Queue for results.
         Returns:
         None
         """
@@ -592,7 +599,13 @@ class TTSModel(nn.Module):
             )
 
         def run_generation():
-            """Starts a new thread to run autoregressive generation and handles exceptions by logging them and signaling the decoder to stop if necessary."""
+            """Runs autoregressive generation in a separate thread, handling exceptions by logging and signaling the decoder to stop. Returns None.
+            Args:
+            model_state: Current state of the model.
+            max_gen_len: Maximum length of the generated sequence.
+            frames_after_eos: Frames to generate after the end of sequence token.
+            latents_queue: Queue for latent codes.
+            """
             try:
                 self._autoregressive_generation(
                     model_state, max_gen_len, frames_after_eos, latents_queue
@@ -613,12 +626,12 @@ class TTSModel(nn.Module):
     def _autoregressive_generation(
         self, model_state: dict, max_gen_len: int, frames_after_eos: int, latents_queue: queue.Queue
     ):
-        """Autoregressive generation using a flow-based language model.
+        """Generate latents using an autoregressive process.
         Args:
         model_state (dict): Current state of the model.
         max_gen_len (int): Maximum length of generation.
         frames_after_eos (int): Number of frames after EOS to generate.
-        latents_queue (queue.Queue): Queue for latent values.
+        latents_queue (queue.Queue): Queue for storing generated latents.
         Returns:
         None
         """
@@ -661,10 +674,10 @@ class TTSModel(nn.Module):
     ) -> dict:
         """Create model state conditioned on audio prompt for continuation.
         Args:
-        audio_conditioning (Path | str | torch.Tensor): Path to audio file, URL, or preprocessed tensor.
-        truncate (bool, optional): Whether to truncate the input audio to fit model requirements. Default is False.
+        audio_conditioning (Path | str | torch.Tensor): Audio input used to condition the model state.
+        truncate (bool, optional): If True, truncate the audio input before processing. Default is False.
         Returns:
-        dict: Dictionary containing the conditioned model state suitable for text-to-speech generation.
+        dict: Dictionary containing the model state with acoustic characteristics of the audio prompt.
         """
         return self.get_state_for_audio_prompt(audio_conditioning, truncate)
 
@@ -751,11 +764,11 @@ class TTSModel(nn.Module):
 
 
 def prepare_text_prompt(text: str) -> tuple[str, int]:
-    """Prepares a text prompt by stripping it and normalizing Unicode punctuation to ASCII. Raises an error if the text is empty. Returns the processed text and the number of words.
+    """Prepares a text prompt by stripping it, checking for emptiness, normalizing punctuation, and replacing newlines and excessive spaces.
     Args:
-    text (str): The input text prompt
+    text (str): The input text to prepare
     Returns:
-    tuple[str, int]: A tuple containing the processed text and the number of words
+    tuple[str, int]: A tuple containing the prepared text and its word count
     """
     text = text.strip()
     if text == "":
@@ -793,12 +806,12 @@ def prepare_text_prompt(text: str) -> tuple[str, int]:
 
 
 def split_into_best_sentences(tokenizer, text_to_generate: str) -> list[str]:
-    """Splits text into sentences based on tokenizer's punctuation.
+    """Splits input text into a list of sentences using a tokenizer.
     Args:
-    tokenizer (Tokenizer): The tokenizer to use for splitting.
-    text_to_generate (str): The text to split into sentences.
+    tokenizer: A tokenizer instance used to tokenize the text.
+    text_to_generate: The text to be split into sentences.
     Returns:
-    list[str]: A list of sentences from the input text.
+    A list of sentences extracted from the input text.
     """
     text_to_generate, _ = prepare_text_prompt(text_to_generate)
     text_to_generate = text_to_generate.strip()

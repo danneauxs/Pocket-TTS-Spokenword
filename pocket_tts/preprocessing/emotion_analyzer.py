@@ -312,7 +312,12 @@ class EmotionAnalyzer:
             logger.info("Emotion model unloaded")
 
     def reload_model(self) -> None:
-        """Reloads the model by first unloading it and then loading it again."""
+        """Reloads the model by first unloading it and then loading it again.
+        Args:
+        None
+        Returns:
+        None
+        """
         """Reload the model."""
         self.unload_model()
         self._load_model()

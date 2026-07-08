@@ -8,7 +8,6 @@ def to_str(obj):
     obj (any): The object to convert.
     Returns:
     str: A string representation of the object.
-    ```
     """
     if isinstance(obj, (torch.Tensor, torch.nn.Parameter)):
         return f"T(s={list(obj.shape)})"
@@ -24,14 +23,14 @@ class LoggingMode(TorchDispatchMode):
     """Useful to check implementation differences."""
 
     def __torch_dispatch__(self, func, types, args=(), kwargs=None):
-        """Dispatches a PyTorch function and logs the call details.
+        """Dispatches a PyTorch function and logs its details.
         Args:
-        func (callable): The PyTorch function to dispatch.
-        types (tuple of torch.dtype): The data types of the input arguments.
-        args (tuple): The positional arguments for the function.
-        kwargs (dict, optional): The keyword arguments for the function.
+        func (callable): The function to be called.
+        types (tuple): Types of arguments.
+        args (tuple, optional): Positional arguments for the function. Defaults to an empty tuple.
+        kwargs (dict, optional): Keyword arguments for the function. Defaults to None.
         Returns:
-        Any: The result of the function call.
+        Any: The result of calling the function with the provided arguments.
         """
         output = func(*args, **kwargs or {})
         print(

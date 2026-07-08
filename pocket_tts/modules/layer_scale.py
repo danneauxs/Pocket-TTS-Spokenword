@@ -3,23 +3,23 @@ import torch.nn as nn
 
 
 class LayerScale(nn.Module):
-    """A LayerScale module for scaling layer outputs in neural networks. Applies a learnable scale factor to the input tensor along its channel dimension."""
+    """A LayerScale module scales its input tensor by learnable per-channel weights initialized to a specified value."""
     def __init__(self, channels: int, init: float):
-        """Initializes a scaling layer for input tensors.
+        """Initializes a scaling layer.
         Args:
-        channels (int): Number of channels in the input tensor.
-        init (float): Initial value for the scaling parameter.
+        - channels (int): Number of channels.
+        - init (float): Initial value for scaling parameters.
         Returns:
-        torch.Tensor: Scaled output tensor.
+        - torch.Tensor: Scaled input tensor.
         """
         super().__init__()
         self.scale = nn.Parameter(torch.full((channels,), init))
 
     def forward(self, x: torch.Tensor):
-        """Applies a scaling factor to the input tensor.
+        """Applies a scaling factor to input tensor.
         Args:
-        x (torch.Tensor): The input tensor.
+        x (torch.Tensor): Input tensor.
         Returns:
-        torch.Tensor: The scaled tensor.
+        torch.Tensor: Scaled output tensor.
         """
         return self.scale * x

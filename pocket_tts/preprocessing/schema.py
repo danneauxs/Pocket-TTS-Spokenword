@@ -124,6 +124,7 @@ class TTSParams:
     frames_after_eos: int  # Pause duration in frames
     eos_threshold: float
     lsd_decode_steps: int
+    speed_factor: float = 1.0  # Emotion-based playback speed multiplier
 
 @dataclass
 class GenerationProgress:

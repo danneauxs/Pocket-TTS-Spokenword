@@ -61,25 +61,11 @@ web_app.add_middleware(
 
 @web_app.get("/")
 async def root():
-    """Serve the frontend.
+    """Serves the frontend index.html file.
     Args:
     None
     Returns:
-    FileResponse: The response containing the static index.html file.
-    ---
-    Provides health information for the web application.
-    Args:
-    None
-    Returns:
-    dict: A dictionary indicating that the application is healthy.
-    ---
-    Allows writing to the StreamingResponse as if it were a file.
-    Args:
-    queue (asyncio.Queue): The queue to write data to.
-    text_to_generate (str): The text to generate and write.
-    model_state (dict): The current state of the model.
-    Returns:
-    None
+    FileResponse containing the static index.html file.
     """
     """Serve the frontend."""
     static_path = Path(__file__).parent / "static" / "index.html"
@@ -101,57 +87,48 @@ def write_to_queue(queue, text_to_generate, model_state):
     """Allows writing to the StreamingResponse as if it were a file."""
 
     class FileLikeToQueue(io.IOBase):
-        """A file-like object adapter for writing data to a queue."""
+        """Represents a file-like object that writes data to a queue instead of a file.
+        Attributes:
+        - queue: The queue to which data is written.
+        """
         def __init__(self, queue):
-            """Initialize a writer for handling data in a queue.
+            """Initializes a new instance of a class with a queue.
             Args:
-            queue (Queue): The queue to write data into.
-            Returns: None
+            queue: A queue object used for communication.
             Methods:
-            - write(data): Write data into the queue.
-            - flush(): Placeholder for flushing operations.
-            - close(): Signal completion by writing None to the queue.
+            write(data): Puts data into the queue.
+            flush(): Not implemented.
+            close(): Sends None to indicate end of stream.
             """
             self.queue = queue
 
         def write(self, data):
             """Writes data to a queue.
             Args:
-            data (any): Data to write to the queue.
-            Returns: None
-            Closes the queue by sending a None value.
-            Args: None
-            Returns: None
-            Transfers audio chunks from an iterable to a queue for processing.
-            Args:
-            FileLikeToQueue (object): A file-like object that writes to a queue.
-            audio_chunks (iterable): An iterable of audio data chunks.
-            sample_rate (int): The sample rate of the audio data.
-            Returns: None
+            data: Data to write to the queue.
+            Returns:
+            None
             """
             self.queue.put(data)
 
         def flush(self):
-            """Flushes the current state.
+            """Flushes the queue.
             Args:
-            None Returns:
             None
-            Closes the connection and puts None into the queue. Args:
-            None Returns:
-            None
-            Generates audio data using a TTS model stream.
-            Args:
-            text_to_generate (str): The text to generate audio for.
-            model_state (dict): The current state of the model.
             Returns:
-            Queue: A queue containing generated audio chunks.
+            None
+            Closes the stream by putting None into the queue.
+            Args:
+            queue (Queue): The queue to close.
+            Returns:
+            None
             """
             pass
 
         def close(self):
-            """Closes the queue associated with an audio stream.
+            """Closes the audio stream by putting `None` into the queue.
             Args:
-            - None
+            - self: The instance of the class.
             Returns: None
             """
             self.queue.put(None)
@@ -163,12 +140,12 @@ def write_to_queue(queue, text_to_generate, model_state):
 
 
 def generate_data_with_state(text_to_generate: str, model_state: dict):
-    """Generates data from a model state while handling threading and queuing.
+    """Generates data from a given text using a model state.
     Args:
-    text_to_generate (str): The text to generate.
+    text_to_generate (str): The text to generate data from.
     model_state (dict): The current state of the model.
     Returns:
-    generator: Yields generated data as it becomes available.
+    Generator[str]: A generator yielding generated data as it becomes available.
     """
     queue = Queue()
 
@@ -444,12 +421,11 @@ def audiobook(
 
         # Create a generator that processes all chunks
         def generate_all_chunks() -> Iterator[torch.Tensor]:
-            """Generates all chunks as PyTorch tensors.
+            """Generates all chunks of data.
             Args:
-            chunks_to_process (Iterable[dict]): An iterable of dictionaries representing chunks.
-            start_index (int): The starting index for chunk numbering.
+            None
             Returns:
-            Iterator[torch.Tensor]: An iterator yielding processed chunks as PyTorch tensors.
+            Iterator[torch.Tensor]
             """
             total_duration = 0.0
             start_time = time.time()
@@ -675,7 +651,8 @@ def test_preprocessing(text_file: str, output_json: str = None):
                 emotion=emotion["emotion"],
                 punctuation=chunk.punctuation,
                 boundary_type=chunk.boundary_type,
-                word_count=chunk.word_count
+                word_count=chunk.word_count,
+                emotion_scores=emotion["scores"]
             )
             
             # Get silence duration (ms) -> convert to seconds for storage
@@ -688,6 +665,7 @@ def test_preprocessing(text_file: str, output_json: str = None):
                 "frames_after_eos": params.frames_after_eos,
                 "eos_threshold": params.eos_threshold,
                 "lsd_decode_steps": params.lsd_decode_steps,
+                "speed_factor": params.speed_factor,
             }
             chunk.emotion = emotion["emotion"]
             chunk.emotion_scores = emotion["scores"]

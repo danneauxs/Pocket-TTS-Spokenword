@@ -33,7 +33,7 @@ class StructureDetector:
     def __init__(self):
         """Perform complete structural analysis of input text.
         Args:
-        text (str): Raw input text
+        text: Raw input text
         Returns:
         TextStructure: Complete analysis results
         """
@@ -266,6 +266,11 @@ class StructureDetector:
         """
         sentences = []
 
+        # Protect [Xs] pause markers from being split by temporarily replacing
+        # periods inside brackets with a placeholder, then restoring after split.
+        # This prevents "[0.5s]" from becoming "[0. 5s]"
+        text = self._protect_pause_markers(text)
+
         # Split text into sentences, keeping the delimiters
         # This regex splits on sentence enders but keeps them
         parts = re.split(r'([.!?]+)', text)
@@ -302,7 +307,7 @@ class StructureDetector:
 
             # Create sentence info (paragraph ending will be set later)
             sentence_info = SentenceInfo(
-                text=sentence_text.strip() + punctuation,
+                text=self._restore_pause_markers(sentence_text.strip() + punctuation),
                 start_position=start_pos,
                 end_position=end_pos,
                 word_count=len(sentence_text.split()),
@@ -319,7 +324,7 @@ class StructureDetector:
             if remaining_text:
                 ends_paragraph = self._check_ends_paragraph(text, len(text))
                 sentence_info = SentenceInfo(
-                    text=remaining_text,
+                    text=self._restore_pause_markers(remaining_text),
                     start_position=current_pos,
                     end_position=len(text),
                     word_count=len(remaining_text.split()),
@@ -342,6 +347,9 @@ class StructureDetector:
         para_text = full_text[para_start:para_end]
 
         sentences = []
+
+        # Protect [Xs] pause markers before splitting
+        para_text = self._protect_pause_markers(para_text)
 
         # Split paragraph text into sentences using the same logic as segment_sentences
         parts = re.split(r'([.!?]+)', para_text)
@@ -380,30 +388,30 @@ class StructureDetector:
             abs_start_pos = para_start + rel_start_pos
             abs_end_pos = para_start + rel_end_pos
 
-            # Create sentence info
+# Create sentence info
             full_text = sentence_text.strip() + punctuation
             word_count = len(sentence_text.split())
-            
+
             # Check if this is just closing punctuation (orphaned by regex split)
-            # Smart quotes: ” (u201d), “ (u201c), etc.
-            is_closing_punct = re.match(r'^[”"\'\)\]\}\s]+$', full_text)
+            # Smart quotes: " (u201d), " (u201c), etc.
+            is_closing_punct = re.match(r'^[""\'\)\]\}\s]+$', full_text)
 
             if is_closing_punct and sentences:
                 # Append to previous sentence instead of creating a new one
                 last_sentence = sentences[-1]
                 logger.debug(f"Appending orphaned punctuation '{full_text}' to previous sentence: '{last_sentence.text}'")
-                
+
                 # Update previous sentence
                 # We need to preserve the space between if it existed in original, but here we work with stripped chunks mostly.
-                # However, full_text is stripped. 
-                # Let's just append it. If there was a space, it might be lost here, 
+                # However, full_text is stripped.
+                # Let's just append it. If there was a space, it might be lost here,
                 # but usually closing quotes attach directly.
-                last_sentence.text += full_text
+                last_sentence.text += self._restore_pause_markers(full_text)
                 last_sentence.end_position = abs_end_pos
                 # Word count shouldn't change for punctuation
             else:
                 sentence_info = SentenceInfo(
-                    text=full_text,
+                    text=self._restore_pause_markers(full_text),
                     start_position=abs_start_pos,
                     end_position=abs_end_pos,
                     word_count=word_count,
@@ -423,27 +431,27 @@ class StructureDetector:
         if current_pos < len(para_text):
             remaining_text = para_text[current_pos:]  # Don't strip yet to preserve relative position
             stripped_text = remaining_text.strip()
-            
+
             if stripped_text:
                 # Check if this is just closing punctuation (orphaned by regex split)
-                # Smart quotes: ” (u201d), “ (u201c), etc.
-                is_closing_punct = re.match(r'^[”"\'\)\]\}\s]+$', stripped_text)
-                
+                # Smart quotes: " (u201d), " (u201c), etc.
+                is_closing_punct = re.match(r'^[""\'\)\]\}\s]+$', stripped_text)
+
                 if is_closing_punct and sentences:
                     # Append to previous sentence instead of creating a new one
                     last_sentence = sentences[-1]
                     logger.debug(f"Appending orphaned punctuation '{stripped_text}' to previous sentence: '{last_sentence.text}'")
-                    
+
                     # Update previous sentence
-                    last_sentence.text += remaining_text # Append with original whitespace if any
-                    last_sentence.text = last_sentence.text.strip() # Then strip the result
+                    last_sentence.text += remaining_text  # Append with original whitespace if any
+                    last_sentence.text = self._restore_pause_markers(last_sentence.text.strip())  # Then strip and restore
                     last_sentence.end_position = para_end
                     # Word count shouldn't change for punctuation
                 else:
                     # Create new sentence as normal
                     word_count = len(stripped_text.split())
                     sentence_info = SentenceInfo(
-                        text=stripped_text,
+                        text=self._restore_pause_markers(stripped_text),
                         start_position=para_start + current_pos,
                         end_position=para_end,  # End of paragraph
                         word_count=word_count,
@@ -514,3 +522,35 @@ class StructureDetector:
             'avg_words_per_sentence': structure.total_words / len(structure.sentences) if structure.sentences else 0,
             'avg_sentences_per_paragraph': len(structure.sentences) / len(structure.paragraphs) if structure.paragraphs else 0,
         }
+
+    def _protect_pause_markers(self, text: str) -> str:
+        """
+        Protect [Xs] pause markers from being split by sentence segmentation.
+
+        Replaces periods inside pause markers with a placeholder that won't trigger
+        sentence splitting, e.g., "[0.5s]" becomes "[0§5s]".
+
+        Args:
+            text: Original text with potential pause markers
+
+        Returns:
+            Text with protected pause markers
+        """
+        # Replace any [number.s] with placeholder (using § as it's unlikely in text)
+        # This handles [0.5s], [10s], [1.25s], etc.
+        return re.sub(r'\[(\d+\.?\d*)s\]', lambda m: m.group(0).replace('.', '§'), text)
+
+    def _restore_pause_markers(self, text: str) -> str:
+        """
+        Restore [Xs] pause markers after sentence segmentation.
+
+        Reverts the placeholder back to the original period, e.g., "[0§5s]" becomes "[0.5s]".
+
+        Args:
+            text: Text with protected pause markers
+
+        Returns:
+            Text with restored pause markers
+        """
+        # Restore § to .
+        return text.replace('§', '.')

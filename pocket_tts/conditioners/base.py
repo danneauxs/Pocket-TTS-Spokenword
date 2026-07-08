@@ -11,9 +11,7 @@ Prepared = TypeVar("Prepared")  # represents the prepared condition input type.
 
 
 class TokenizedText(NamedTuple):
-    """A class for representing tokenized text using PyTorch tensors.
-    A base class for all conditioner modules in a neural network architecture. Defines common attributes and methods for handling input data and producing conditioned outputs based on specified dimensions and projections.
-    """
+    """A named tuple representing tokenized text as a long tensor."""
     tokens: torch.Tensor  # should be long tensor.
 
 
@@ -31,14 +29,14 @@ class BaseConditioner(nn.Module, Generic[Prepared]):
     def __init__(
         self, dim: int, output_dim: int, output_bias: bool = False, force_linear: bool = True
     ):
-        """Initializes a neural network layer.
+        """Initialize a transformation layer.
         Args:
-        dim (int): The input dimension.
-        output_dim (int): The output dimension.
-        output_bias (bool): Whether to include bias terms in the output layer. Default is False.
-        force_linear (bool): If True, forces the use of a linear transformation regardless of dimension mismatch. Default is True.
+        dim (int): Input dimension.
+        output_dim (int): Output dimension.
+        output_bias (bool, optional): Whether to include bias. Defaults to False.
+        force_linear (bool, optional): Force linear transformation if dimensions don't match. Defaults to True.
         Returns:
-        torch.Tensor: The transformed input tensor.
+        torch.Tensor: Transformed output tensor.
         """
         super().__init__()
         self.dim = dim
@@ -47,10 +45,10 @@ class BaseConditioner(nn.Module, Generic[Prepared]):
         assert not output_bias
 
     def forward(self, inputs: TokenizedText) -> torch.Tensor:
-        """Computes a condition based on tokenized inputs.
+        """Executes a forward pass through the network using the provided tokenized text inputs.
         Args:
-        inputs (TokenizedText): Input data containing tokens.
+        inputs (TokenizedText): The input data containing tokenized text.
         Returns:
-        torch.Tensor: Computed condition tensor.
+        torch.Tensor: The output tensor from the forward pass.
         """
         return self._get_condition(inputs)

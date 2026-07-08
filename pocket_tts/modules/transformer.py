@@ -9,14 +9,14 @@ from pocket_tts.modules.stateful_module import StatefulModule
 def complete_kv(
     cache: torch.Tensor, current_end: torch.Tensor, k: torch.Tensor, v: torch.Tensor
 ) -> tuple[torch.Tensor, torch.Tensor]:
-    """Updates cache tensors by appending k and v at the end.
+    """Updates cache with new key-value pairs and returns valid portions.
     Args:
-    cache (torch.Tensor): Cache tensor to be updated.
-    current_end (torch.Tensor): Index where current data ends in cache.
-    k (torch.Tensor): Tensor to append as keys.
-    v (torch.Tensor): Tensor to append as values.
+    cache (torch.Tensor): The cache tensor to update.
+    current_end (torch.Tensor): The index where the current data ends.
+    k (torch.Tensor): Key tensor to be added to the cache.
+    v (torch.Tensor): Value tensor to be added to the cache.
     Returns:
-    tuple[torch.Tensor, torch.Tensor]: Updated keys and values tensors.
+    tuple[torch.Tensor, torch.Tensor]: Valid key and value tensors.
     """
     current_end = current_end.shape[0]
 
@@ -29,13 +29,13 @@ def complete_kv(
 def _materialize_causal_mask(
     shape: tuple[int, ...], shift: int, device: str | torch.device = "cpu"
 ) -> torch.Tensor:
-    """Create a causal mask for streaming multi-head attention.
+    """Generates a causal attention mask for the given shape and shift.
     Args:
-    shape (tuple[int, ...]): The shape of the tensor to be masked.
-    shift (int): The shift value for the causal mask.
-    device (str | torch.device, optional): The device on which to create the tensor. Defaults to "cpu".
+    shape: A tuple of integers representing the shape of the tensor.
+    shift: An integer indicating the shift in the causal mask.
+    device: A string or torch.device specifying the device on which to create the tensor (default is "cpu").
     Returns:
-    torch.Tensor: A causal mask tensor.
+    A torch.Tensor containing the causal attention mask.
     """
     dtype = torch.float32
 
@@ -62,12 +62,13 @@ class StreamingMultiheadAttention(StatefulModule):
     """
 
     def __init__(self, embed_dim: int, num_heads: int, rope: RotaryEmbedding):
-        """Initializes a transformer layer with rotary positional embeddings.
+        """Initializes a transformer layer with rotary positional encoding.
         Args:
-        embed_dim (int): The embedding dimension.
-        num_heads (int): Number of attention heads.
-        rope (RotaryEmbedding): Rotary embedding layer.
-        Returns: None
+        embed_dim (int): The dimension of the input and output embeddings.
+        num_heads (int): The number of attention heads.
+        rope (RotaryEmbedding): The rotary embedding module.
+        Returns:
+        None
         """
         super().__init__()
 
@@ -84,23 +85,23 @@ class StreamingMultiheadAttention(StatefulModule):
         self.out_proj = nn.Linear(embed_dim, mult * embed_dim, bias=False)
 
     def _get_mask(self, shape: tuple[int, int], shift: int, device: torch.device) -> torch.Tensor:
-        """Get a causal mask for the given shape and shift.
+        """Returns a causal mask for the given shape and shift.
         Args:
-        shape (tuple[int, int]): The shape of the mask.
-        shift (int): The shift amount for the mask.
-        device (torch.device): The device on which to create the mask.
+        shape: A tuple of integers representing the shape of the mask.
+        shift: An integer representing the shift value for the mask.
+        device: A torch.device object indicating where to place the mask.
         Returns:
-        torch.Tensor: A causal mask tensor.
+        A torch.Tensor containing the causal mask.
         """
         return _materialize_causal_mask(shape, shift=shift, device=device)
 
     def init_state(self, batch_size: int, sequence_length: int) -> dict[str, torch.Tensor]:
-        """Initializes the state for a sequence processing task.
+        """Initializes the state dictionary for batch processing.
         Args:
-        batch_size (int): The number of sequences in the batch.
-        sequence_length (int): The length of each sequence.
+        batch_size (int): The number of items in a batch.
+        sequence_length (int): The length of sequences being processed.
         Returns:
-        dict[str, torch.Tensor]: A dictionary containing the initialized state with keys 'current_end' and 'cache'.
+        dict[str, torch.Tensor]: A dictionary containing initialized 'current_end' and 'cache' tensors.
         """
         dim_per_head = self.embed_dim // self.num_heads
         initial_current_end = torch.zeros((0,)).to(self.in_proj.weight.device)
@@ -115,53 +116,56 @@ class StreamingMultiheadAttention(StatefulModule):
         )
 
     def increment_step(self, state: dict, increment: int = 1):
-        """Increments the `current_end` size in the given state dictionary by a specified increment value.
+        """Increment the size of a tensor in the given state by a specified amount.
         Args:
-        state (dict): The state dictionary containing current_end tensor and other relevant information.
-        increment (int, optional): The number of elements to add to current_end. Default is 1.
-        Returns: None
-        Completes key-value pairs using cached data and current end index in the given state dictionary.
-        Args:
-        k (torch.Tensor): The input query tensor.
-        v (torch.Tensor): The input value tensor.
-        state (dict | None): The state dictionary containing cache, current_end tensor, etc. If None, a default empty dict is used.
+        state (dict): The state dictionary containing the current end tensor.
+        increment (int, optional): The amount to increase the tensor size by. Defaults to 1.
         Returns:
-        tuple: A tuple containing the completed key and value tensors.
-        Applies ROPE embeddings to query and key tensors using a streaming offset from the given state dictionary.
+        None
+        Complete key and value tensors using cached values and the current end index.
         Args:
-        query (torch.Tensor): The input query tensor.
-        key (torch.Tensor): The input key tensor.
-        state (dict | None): The state dictionary containing current_end tensor, etc. If None, a default empty dict is used.
+        k: Key tensor.
+        v: Value tensor.
+        state (dict | None): State dictionary containing cache and current end information.
         Returns:
-        tuple: A tuple containing the transformed query and key tensors.
-        Retrieves the streaming offset based on the current end index in the given state dictionary.
+        tuple of torch.Tensor: Completed key and value tensors.
+        Apply rotary position embeddings to query and key tensors based on the streaming offset.
         Args:
-        state (
+        query (torch.Tensor): Query tensor.
+        key (torch.Tensor): Key tensor.
+        state (dict | None): State dictionary containing current end information.
+        Returns:
+        tuple of torch.Tensor: Tensors with applied rotary position embeddings.
+        Calculate the streaming offset based on the current end index in the state.
+        Args:
+        state (dict | None): State dictionary containing current end information.
+        Returns:
+        int or torch.Tensor: Streaming offset.
         """
         new_size = state["current_end"].shape[0] + increment
         state["current_end"] = torch.zeros((new_size,)).to(state["current_end"].device)
 
     def _complete_kv(self, k, v, state: dict | None):
-        """Completes key-value pairs using cache and current end state.
+        """- `_complete_kv`: Completes key-value pairs using cache and current end state.
         Args:
-        k (any): Key.
-        v (any): Value.
+        k (any): Key to complete.
+        v (any): Value to complete.
         state (dict | None): State dictionary containing cache and current end information.
         Returns:
-        tuple: Completed key-value pairs.
-        Applies rope embeddings to query and key tensors.
+        tuple: Completed key and value.
+        - `_apply_rope`: Applies rope embeddings to query and key tensors using a streaming offset.
         Args:
         query (torch.Tensor): Query tensor.
         key (torch.Tensor): Key tensor.
-        state (dict | None): State dictionary containing streaming offset.
+        state (dict | None): State dictionary containing current end information.
         Returns:
-        torch.Tensor: Embedded query tensor.
-        Calculates the streaming offset from current end state.
+        torch.Tensor: Transformed query and key tensors.
+        - `_streaming_offset`: Retrieves the streaming offset from the current end state.
         Args:
         state (dict | None): State dictionary containing current end information.
         Returns:
-        int: Streaming offset.
-        Checks if model_state is provided and raises ValueError if not.
+        torch.Tensor | int: Streaming offset.
+        - `check_model_state`: Validates if the model state is provided.
         Args:
         model_state (dict): Model state dictionary.
         """
@@ -169,42 +173,44 @@ class StreamingMultiheadAttention(StatefulModule):
         return k, v
 
     def _apply_rope(self, query: torch.Tensor, key: torch.Tensor, state: dict | None):
-        """Apply rope embeddings to query and key tensors.
+        """Applies rope embeddings to input tensors based on the current model state.
         Args:
         query (torch.Tensor): The input query tensor.
         key (torch.Tensor): The input key tensor.
-        state (dict | None): The model state dictionary.
+        state (dict | None): The current model state dictionary.
         Returns:
-        torch.Tensor: The modified query and key tensors after applying rope embeddings.
+        torch.Tensor: The transformed query and key tensors.
         """
         # Apply rope embeddings to query and key tensors.
         streaming_offset = self._streaming_offset(state)
         return self.rope(query, key, offset=streaming_offset)
 
     def _streaming_offset(self, state: dict | None) -> torch.Tensor | int:
-        """```python
-        Returns the current streaming offset from a given state.
+        """Calculates the streaming offset based on the model state.
         Args:
-        state (dict | None): The current state dictionary.
+        state (dict | None): The current model state.
         Returns:
-        torch.Tensor | int: The streaming offset.
-        Checks if model_state is provided and returns the model's state.
+        torch.Tensor | int: The calculated streaming offset.
+        ---
+        Checks if the provided model state is valid and retrieves it.
         Args:
-        model_state (dict): The model's state dictionary.
+        model_state (dict): The model state to check.
         Raises:
-        ValueError: If model_state is not provided.
+        ValueError: If model_state is None.
+        Returns:
+        dict: The retrieved model state.
+        ---
         Performs a forward pass through the model.
         Args:
         query (torch.Tensor): The input query tensor.
-        model_state (dict | None): The current state dictionary.
-        ```
+        model_state (dict | None): The current model state, or None if not available.
         """
         return state["current_end"].shape[0]
 
     def check_model_state(self, model_state: dict):
-        """Checks the model state and returns it if valid.
+        """Checks if model_state is provided and raises a ValueError if it's None.
         Args:
-        model_state (dict): The model's current state to check.
+        model_state (dict): The model's current state.
         Returns:
         dict: The validated model state.
         """
@@ -213,12 +219,12 @@ class StreamingMultiheadAttention(StatefulModule):
         return self.get_state(model_state)
 
     def forward(self, query: torch.Tensor, model_state: dict | None):
-        """Calculates forward pass for a transformer model.
+        """Applies a forward pass through the transformer layer.
         Args:
-        query (torch.Tensor): Input query tensor.
-        model_state (dict | None): State of the model.
+        query (torch.Tensor): The input tensor for the query.
+        model_state (dict | None): Dictionary containing the current state of the model.
         Returns:
-        torch.Tensor: Resulting tensor after applying attention mechanisms.
+        torch.Tensor: The output tensor after applying the forward pass.
         """
         state = self.check_model_state(model_state)
 

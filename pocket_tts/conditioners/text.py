@@ -24,10 +24,10 @@ class SentencePieceTokenizer:
     """
 
     def __init__(self, nbins: int, tokenizer_path: str) -> None:
-        """Initializes a Lookup Table conditioner for tokenizing text.
+        """Initializes a new instance of the LUTConditioner class with a specified number of bins and tokenizer path.
         Args:
-        nbins (int): The number of bins in the vocabulary.
-        tokenizer_path (str): Path to the SentencePiece tokenizer model file.
+        nbins (int): The number of bins for the lookup table.
+        tokenizer_path (str): The path to the SentencePiece tokenizer file.
         Returns:
         None
         """
@@ -39,11 +39,13 @@ class SentencePieceTokenizer:
         )
 
     def __call__(self, text: str) -> TokenizedText:
-        """Converts input text to a tokenized representation using a lookup table.
+        """```python
+        Encodes input text using a lookup table and returns a TokenizedText object.
         Args:
-        text (str): The input text to be tokenized.
+        text (str): The input text to encode.
         Returns:
-        TokenizedText: The tokenized representation of the input text.
+        TokenizedText: A TokenizedText object containing the encoded text.
+        ```
         """
         return TokenizedText(torch.tensor(self.sp.encode(text, out_type=int))[None, :])
 
@@ -60,36 +62,34 @@ class LUTConditioner(BaseConditioner):
     """
 
     def __init__(self, n_bins: int, tokenizer_path: str, dim: int, output_dim: int):
-        """Initializes a tokenizer and embedding layer for processing input text.
+        """Initializes a tokenizer and embedding layer for tokenizing input strings.
         Args:
-        n_bins (int): Number of bins for the tokenizer.
-        tokenizer_path (str): Path to the tokenizer model file.
-        dim (int): Dimensionality of the embedding.
-        output_dim (int): Output dimensionality.
+        n_bins (int): Number of bins used in the tokenizer.
+        tokenizer_path (str): Path to the tokenizer file.
+        dim (int): Dimensionality of the embedding layer.
+        output_dim (int): Output dimensionality of the model.
         Returns:
-        TokenizedText: Tokenized representation of the input text.
+        None
         """
         super().__init__(dim=dim, output_dim=output_dim)
         self.tokenizer = SentencePieceTokenizer(n_bins, tokenizer_path)
         self.embed = nn.Embedding(n_bins + 1, self.dim)  # n_bins + 1 for padding.
 
     def prepare(self, x: str) -> TokenizedText:
-        """Prepares input text by tokenizing and moving it to the specified device.
+        """This function processes input text to prepare it for embedding.
         Args:
-        x (str): Input text string.
+        x (str): The input string to tokenize.
         Returns:
-        TokenizedText: Tokenized and device-moved text.
+        TokenizedText: The tokenized representation of the input string ready for embedding.
         """
         tokens = self.tokenizer(x)
         tokens = tokens[0].to(self.embed.weight.device)
         return TokenizedText(tokens)
 
     def _get_condition(self, inputs: TokenizedText) -> torch.Tensor:
-        """Returns embeddings for the given tokenized text.
+        """Returns a tensor of embeddings for the input tokens.
         Args:
-        inputs (TokenizedText): The input text to be embedded.
-        Returns:
-        torch.Tensor: The embeddings of the input text.
+        inputs (TokenizedText): A batch of tokenized inputs.
         """
         embeds = self.embed(inputs[0])
         return embeds

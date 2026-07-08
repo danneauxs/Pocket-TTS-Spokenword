@@ -13,13 +13,7 @@ logger = logging.getLogger()
 
 
 class MimiModel(nn.Module):
-    """A neural network model combining an encoder and a decoder for processing sequential data.
-    - `encoder`: The encoder module for feature extraction.
-    - `decoder`: The decoder module for generating output from encoded features.
-    - `quantizer`: A quantization module to reduce the precision of intermediate representations.
-    - `frame_rate`, `encoder_frame_rate`, `sample_rate`: Parameters related to time and audio processing.
-    - `channels`: Number of audio channels in the input data.
-    """
+    """Class representing a model combining an encoder and decoder for audio processing."""
     def __init__(
         self,
         encoder: SEANetEncoder,
@@ -32,19 +26,17 @@ class MimiModel(nn.Module):
         encoder_transformer: ProjectedTransformer,
         decoder_transformer: ProjectedTransformer,
     ):
-        """Initializes a SEANet model.
+        """Initializes a new instance of the class.
         Args:
-        - encoder (SEANetEncoder): The encoder module.
-        - decoder (SEANetDecoder): The decoder module.
-        - quantizer (DummyQuantizer): The quantization module.
-        - frame_rate (float): The input frame rate.
-        - encoder_frame_rate (float): The encoder-specific frame rate.
-        - sample_rate (int): The audio sampling rate.
-        - channels (int): The number of audio channels.
-        - encoder_transformer (ProjectedTransformer): The transformer for the encoder.
-        - decoder_transformer (ProjectedTransformer): The transformer for the decoder.
-        Returns:
-        None
+        encoder (SEANetEncoder): The encoder model.
+        decoder (SEANetDecoder): The decoder model.
+        quantizer (DummyQuantizer): The quantizer used for compression.
+        frame_rate (float): The input video frame rate.
+        encoder_frame_rate (float): The frame rate used by the encoder.
+        sample_rate (int): The audio sample rate.
+        channels (int): The number of audio channels.
+        encoder_transformer (ProjectedTransformer): The transformer network for encoding.
+        decoder_transformer (ProjectedTransformer): The transformer network for decoding.
         """
         super().__init__()
         self.encoder = encoder
@@ -76,32 +68,22 @@ class MimiModel(nn.Module):
 
     @property
     def frame_size(self) -> int:
-        """Calculate the size of a frame based on sample rate and frame rate.
+        """Returns the size of a single frame in samples.
         Args:
-        None
+        sample_rate (int): The sampling rate of the audio signal.
+        frame_rate (int): The desired frame rate for processing.
         Returns:
-        int: The calculated frame size
-        Convert input tensor from encoder frame rate to overall frame rate.
-        Args:
-        x (torch.Tensor): Input tensor
-        Returns:
-        torch.Tensor: Tensor converted to overall frame rate
-        Convert input tensor from overall frame rate to encoder frame rate.
-        Args:
-        x (torch.Tensor): Input tensor
-        mimi_state (any): State variable for the model (not used)
-        Returns:
-        torch.Tensor: Tensor converted to encoder frame rate
+        int: The number of samples per frame.
         """
         return int(self.sample_rate / self.frame_rate)
 
     def _to_framerate(self, x: torch.Tensor):
-        """Converts a tensor's frame rate from the overall rate to the encoder rate.
+        """Converts a tensor from one frame rate to another.
         Args:
-        x: Input tensor.
-        mimi_state: State for the downsample function (unused).
+        x (torch.Tensor): Input tensor.
+        mimi_state: State for the model (unused in this function).
         Returns:
-        Tensor with frame rate converted to encoder rate.
+        torch.Tensor: Tensor converted to the encoder's frame rate.
         """
         # Convert from the encoder frame rate to the overall framerate.
         _, _, length = x.shape
@@ -112,12 +94,12 @@ class MimiModel(nn.Module):
         return self.downsample(x, model_state=None)
 
     def _to_encoder_framerate(self, x: torch.Tensor, mimi_state) -> torch.Tensor:
-        """Converts input tensor from overall frame rate to encoder frame rate and then decodes it using a transformer.
+        """Converts input tensor from overall frame rate to encoder frame rate and decodes it.
         Args:
-        latent: Input tensor of shape (batch_size, num_channels, length).
-        mimi_state: State object containing additional information for decoding.
+        latent (torch.Tensor): Input tensor.
+        mimi_state: Additional state information.
         Returns:
-        Decoded output tensor of the same shape as input.
+        torch.Tensor: Decoded output tensor.
         """
         # Convert from overall framerate to the encoder frame rate.
         _, _, length = x.shape
@@ -128,22 +110,24 @@ class MimiModel(nn.Module):
         return self.upsample(x, mimi_state)
 
     def forward(self, x: torch.Tensor):
-        """Decodes a latent tensor back to waveform.
+        """Projects a batch of waveforms to unquantized latent space.
         Args:
-        latent (torch.Tensor): Latent tensor.
-        mimi_state: State for the decoder transformer and decoder.
-        Returns:
-        torch.Tensor: Decoded waveform tensor.
+        x (torch.Tensor): Float tensor of shape [B, C, T].
         """
         raise NotImplementedError()
 
     def decode_from_latent(self, latent: torch.Tensor, mimi_state) -> torch.Tensor:
-        """Decodes a latent tensor back to waveforms using the decoder and transformer.
+        """Decodes a latent tensor back to an output tensor using the encoder and decoder transformers.
         Args:
-        latent (torch.Tensor): Latent tensor to decode.
-        mimi_state: State information for the model.
+        latent (torch.Tensor): The input latent tensor to decode.
+        mimi_state: The state used by both the encoder and decoder.
         Returns:
-        Decoded waveform tensor.
+        torch.Tensor: The decoded output tensor.
+        Projects a batch of waveforms to unquantized latent space.
+        Args:
+        x (torch.Tensor): Float tensor of shape [B, C, T].
+        Returns:
+        Unquantized embeddings.
         """
         emb = self._to_encoder_framerate(latent, mimi_state)
         (emb,) = self.decoder_transformer(emb, mimi_state)

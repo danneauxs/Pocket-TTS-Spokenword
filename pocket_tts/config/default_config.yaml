@@ -56,11 +56,19 @@ pauses:
     joy: 0.9     # Joyful pauses 10% shorter
     neutral: 1.0  # Baseline
 
-# SPEED VARIATION - Used in: SpeedAdjuster class
+# SPEED VARIATION - Used in: ParameterMapper
 speed_variation:
-  enabled: true                    # Toggle on/off
-  method: librosa               # "librosa" or "scipy"
-  range: 0.10                     # ±10% variance
+  enabled: true                           # Toggle on/off
+  method: librosa                         # "librosa" or "scipy"
+  range: 0.10                             # ±10% variance
+  emotion_speed_modifiers:
+    joy: 0.05                             # Faster for joy
+    surprise: 0.05                        # Slightly faster for surprise
+    anger: 0.04                           # Slightly faster for anger
+    sadness: -0.05                        # Slower for sadness
+    fear: -0.05                           # Slightly slower for fear
+    disgust: -0.05                        # Slightly slower for disgust
+    neutral: 0.0                          # Baseline
 
 # M4B CONVERSION - Used in: WavToM4bConverter class
 m4b:

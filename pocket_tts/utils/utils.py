@@ -20,11 +20,17 @@ PREDEFINED_VOICES = {
 
 
 def make_cache_directory() -> Path:
-    """Create a cache directory for pocket_tts.
+    """Create a cache directory for the application.
     Args:
-    None
+    - None
     Returns:
-    Path object representing the created cache directory
+    - Path: The path to the created or existing cache directory.
+    Log and print the number of parameters in a given neural network model.
+    Args:
+    - model (nn.Module): The neural network model.
+    - model_name (str): The name of the model.
+    Returns:
+    - None
     """
     cache_dir = Path.home() / ".cache" / "pocket_tts"
     cache_dir.mkdir(parents=True, exist_ok=True)
@@ -32,10 +38,10 @@ def make_cache_directory() -> Path:
 
 
 def print_nb_parameters(model: nn.Module, model_name: str):
-    """Counts and logs the number of parameters in a PyTorch model.
+    """Logs the number of parameters in a model and returns the total count.
     Args:
-    model (nn.Module): The PyTorch model whose parameters are to be counted.
-    model_name (str): The name of the model for logging purposes.
+    model (nn.Module): The neural network model.
+    model_name (str): Name of the model for logging purposes.
     Returns:
     int: Total number of parameters in the model.
     """
@@ -49,19 +55,13 @@ def print_nb_parameters(model: nn.Module, model_name: str):
 
 
 def size_of_dict(state_dict: dict) -> int:
-    """Calculates the total size of tensors in a nested dictionary.
+    """Calculates the total size of a dictionary containing tensors and nested dictionaries.
     Args:
-    state_dict (dict): The nested dictionary containing tensors and other dictionaries.
+    state_dict (dict): Dictionary to calculate the size of.
     Returns:
-    int: Total size of tensors in bytes.
+    int: Total size in bytes.
     ---
-    Tracks and optionally prints the execution time of a task.
-    Args:
-    task_name (str): Name of the task being timed.
-    print_output (bool, optional): Whether to print the execution time. Defaults to True.
-    Methods:
-    start(): Marks the beginning of the task.
-    end(): Marks the end of the task and prints or returns the elapsed time.
+    Decorator class to display execution time for tasks.
     """
     total_size = 0
     for value in state_dict.values():
@@ -73,15 +73,14 @@ def size_of_dict(state_dict: dict) -> int:
 
 
 class display_execution_time:
-    """A context manager for displaying the execution time of a task.
-    Tracks the start and end times to calculate the elapsed duration in milliseconds.
-    Optionally prints the output.
+    """Tracks and optionally prints the execution time of a task.
+    Context manager for measuring and logging the duration of a code block. Logs the elapsed time in milliseconds when exiting the context.
     """
     def __init__(self, task_name: str, print_output: bool = True):
-        """Measures and prints elapsed time for a task.
+        """Context manager for timing and optionally logging tasks.
         Args:
-        task_name (str): Name of the task being measured.
-        print_output (bool, optional): Whether to print the elapsed time. Defaults to True.
+        task_name (str): Name of the task being timed.
+        print_output (bool, optional): Whether to print elapsed time upon exit. Default is True.
         Returns:
         None
         """
@@ -92,29 +91,25 @@ class display_execution_time:
         self.logger = logging.getLogger(__name__)
 
     def __enter__(self):
-        """This context manager measures and logs the time taken for a task.
+        """Context manager for timing operations.
         Args:
-        self: The instance of the context manager.
+        task_name (str): Name of the task to be logged.
+        print_output (bool): Whether to print the elapsed time.
+        logger (Logger): Logger object for logging messages.
         Returns:
-        self
-        Function to download a file if it's not already cached. If the file path is a URL, it will be downloaded and stored in a cache directory.
-        Args:
-        file_path (str): The path to the file or URL.
-        Returns:
-        Path: The path to the local copy of the file.
-        ```
+        None
         """
         self.start_time = time.monotonic()
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        """Closes the context manager and logs the elapsed time.
+        """Closes a timing context manager and logs the elapsed time.
         Args:
-        exc_type (type): The exception type.
-        exc_val (Exception): The exception value.
-        exc_tb (traceback): The traceback object.
+        exc_type: The type of exception raised.
+        exc_val: The value of the exception raised.
+        exc_tb: The traceback object if an exception was raised.
         Returns:
-        bool: False to not suppress exceptions.
+        False to indicate that exceptions should not be suppressed.
         """
         end_time = time.monotonic()
         self.elapsed_time_ms = int((end_time - self.start_time) * 1000)
@@ -124,11 +119,11 @@ class display_execution_time:
 
 
 def download_if_necessary(file_path: str) -> Path:
-    """Download a file if it's not already cached.
+    """Downloads a file from a given URL if it's not already cached and returns the local path to the file.
     Args:
-    file_path (str): The URL or local path of the file to download.
+    file_path (str): The URL of the file to download or the hf:// path of the file.
     Returns:
-    Path: The path to the locally cached file.
+    Path: The local path to the downloaded or cached file.
     """
     if file_path.startswith("http://") or file_path.startswith("https://"):
         cache_dir = make_cache_directory()
@@ -157,11 +152,13 @@ def download_if_necessary(file_path: str) -> Path:
 
 
 def load_predefined_voice(voice_name: str) -> torch.Tensor:
-    """Loads a predefined voice as a torch.Tensor.
+    """Loads a predefined voice from a file.
     Args:
-    - voice_name (str): The name of the predefined voice to load.
+    voice_name (str): The name of the predefined voice to load.
     Returns:
-    - torch.Tensor: The loaded voice tensor.
+    torch.Tensor: A tensor containing the audio prompt for the specified voice.
+    Raises:
+    ValueError: If the voice_name is not found in PREDEFINED_VOICES.
     """
     if voice_name not in PREDEFINED_VOICES:
         raise ValueError(

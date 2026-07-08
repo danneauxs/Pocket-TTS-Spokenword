@@ -117,8 +117,14 @@ class ParameterMapper:
         # Load emotion multipliers (these stay as defaults)
         self.emotion_multipliers = emotion_multipliers or self.DEFAULT_EMOTION_MULTIPLIERS
         self.speed_range = speed_range
-        
 
+        # Load emotion speed modifiers from config
+        self.speed_modifiers = {}
+        self.speed_variation_enabled = True
+        if config and hasattr(config, 'speed_variation'):
+            self.speed_modifiers = config.speed_variation.get('emotion_speed_modifiers', {})
+            self.speed_variation_enabled = config.speed_variation.get('enabled', True)
+            logger.info(f"Loaded emotion speed modifiers: {self.speed_modifiers}")
 
         # Load short sentence mitigation settings
         if config and hasattr(config, 'mitigation'):
@@ -141,7 +147,8 @@ class ParameterMapper:
                          punctuation: str,
                          boundary_type: BoundaryType,
                          has_emphasis: bool = False,
-                         word_count: Optional[int] = None) -> TTSParams:
+                         word_count: Optional[int] = None,
+                         emotion_scores: Optional[Dict[str, float]] = None) -> TTSParams:
         """
         Calculate TTS parameters for a text chunk.
 
@@ -151,6 +158,7 @@ class ParameterMapper:
             boundary_type: Type of text boundary
             has_emphasis: Whether chunk contains emphasis (affects quality)
             word_count: Number of words in the chunk (for short sentence mitigation)
+            emotion_scores: Full emotion score distribution for weighted speed blend
 
         Returns:
             TTSParams: Complete parameter set for TTS generation
@@ -163,7 +171,6 @@ class ParameterMapper:
         # Calculate temperature: adjust base temperature by emotion ratio (relative to neutral 0.7)
         emotion_temp_ratio = emotion_params['temperature'] / 0.7  # Scale relative to neutral
         calculated_temp = self.base_temperature * emotion_temp_ratio
-        speed_factor = emotion_params['speed_factor']
 
         # Apply short sentence mitigation if applicable
         is_short_sentence = word_count is not None and word_count <= self.short_sentence_threshold
@@ -171,11 +178,17 @@ class ParameterMapper:
             calculated_temp = self.temperature_short_sentence
             logger.debug(f"Short sentence detected ({word_count} words), overriding temperature to {calculated_temp}")
 
-        # Clamp speed factor to specified range
-        if speed_factor > 1.0:
-            speed_factor = min(speed_factor, 1.0 + self.speed_range)
-        elif speed_factor < 1.0:
-            speed_factor = max(speed_factor, 1.0 - self.speed_range)
+        # Calculate speed factor: weighted blend from emotion_scores if enabled
+        if emotion_scores and self.speed_variation_enabled and self.speed_modifiers:
+            speed_factor = 1.0
+            for emotion_name, score in emotion_scores.items():
+                modifier = self.speed_modifiers.get(emotion_name, 0.0)
+                speed_factor += score * modifier
+            speed_factor = max(0.7, min(1.3, speed_factor))
+            logger.debug(f"Computed speed_factor={speed_factor:.4f} from emotion_scores")
+        else:
+            # Speed variation disabled or unavailable — no speed change
+            speed_factor = 1.0
 
         # Calculate pause duration
         pause_frames = self._calculate_pause_frames(
@@ -192,11 +205,12 @@ class ParameterMapper:
             temperature=calculated_temp,
             frames_after_eos=self.base_frames_after_eos,
             eos_threshold=eos_threshold,
-            lsd_decode_steps=lsd_steps
+            lsd_decode_steps=lsd_steps,
+            speed_factor=speed_factor
         )
 
         logger.debug(f"Calculated params for {emotion_str}: temp={calculated_temp:.2f}, "
-                    f"pause={pause_frames}, eos={eos_threshold}, quality={lsd_steps}")
+                    f"pause={pause_frames}, eos={eos_threshold}, quality={lsd_steps}, speed={speed_factor:.4f}")
 
         return params
 

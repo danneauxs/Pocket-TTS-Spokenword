@@ -6,8 +6,6 @@
 
 An enhanced version of Kyutai's Pocket TTS that transforms plain text into emotionally expressive audiobooks. Uses advanced AI emotion analysis to create natural, expressive narration with intelligent text chunking and voice adaptation.
 
-** DISCORD https://discord.gg/6hs3r3Wp
-
 **✨ Key Features:**
 
 - **Emotion Analysis**: Automatic detection of emotions in text using DistilRoBERTa
@@ -16,6 +14,7 @@ An enhanced version of Kyutai's Pocket TTS that transforms plain text into emoti
 - **Audiobook Generation**: Complete pipeline for book-to-audio conversion
 - **Voice Cloning**: Custom voice support with emotion preservation
 - **GUI Interface**: User-friendly desktop application for easy audiobook creation
+- **Batch Processing**: Convert entire books or document collections
 
 Supports Python 3.10, 3.11, 3.12, 3.13 and 3.14. Requires PyTorch 2.5+. CPU-only operation.
 
@@ -27,12 +26,17 @@ Supports Python 3.10, 3.11, 3.12, 3.13 and 3.14. Requires PyTorch 2.5+. CPU-only
 * **GUI Application**: Desktop interface for easy audiobook creation
 * Runs on CPU only (no GPU required)
 * Small model size, 100M parameters + emotion analysis
+* Audio streaming with emotion-aware parameter control
+* Low latency, ~200ms to first audio chunk
 * Faster than real-time, ~4-6x speed on modern CPUs
-* Uses 1-4 CPU cores optimally
+* Uses 1-2 CPU cores optimally
+* Python API, CLI, and GUI interfaces
 * Voice cloning with emotion preservation
 * English text support
+* Resume capability for long-form content
+* Batch processing for multiple files
 
-## Trying it from the website, without installing anything (origanl model interface NOT this GUI program)
+## Trying it from the website, without installing anything
 
 Navigate to the https://kyutai.org/tts to try basic TTS functionality directly in your browser. You can input text, select different voices, and generate speech without any installation.
 
@@ -40,65 +44,13 @@ Navigate to the https://kyutai.org/tts to try basic TTS functionality directly i
 
 # Installation
 
-Just a quick note.  I don't have time to properly update this.
-I've included BAT files for installing and running the program under Windows.
-I have a limited test environment for Windows but I was able to get this running without WSL.
-You must have Python 3.12 and no higher installed in Windows for it to work.
 How to install:
-This project uses uv, an extremely fast Python package manager.
-
-1. Install uv:
-   
-   - **Linux & Windows (WSL)**: Open your terminal and run:
-     ```bash
-     curl -LsSf https://astral.sh/uv/install.sh | sh
-     ```
-     Note: After installation, you may need to restart your terminal or run `source $HOME/.local/bin/env` to add uv to your PATH.
-   
-   - **Windows (PowerShell)**: If you are using standard Windows PowerShell (not WSL), run:
-     ```powershell
-     powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
-     ```
-
-### Linux Installation
 
 ```bash
-install.sh
+instasll.sh
 ```
 
-**This will download all necessary files.  You will probably need to go to the [kyutai/pocket-tts · Hugging Face](https://huggingface.co/kyutai/pocket-tts) page to accept TOS to download the model.  I suggest going there FIRST before running install.  FYI on first conversion there will be a delay as the model is downloaded.  This will take time depending on connection spped.
-
-### Windows Installation
-
-#### Option 1: Pre-built Installer (Recommended)
-
-Download `Pocket-TTS-Setup.exe` from the [GitHub Releases](https://github.com/DNXS-Spokenword/Pocket-TTS-Spokenword/releases) and run it. The installer will:
-
-- Extract to `%LOCALAPPDATA%\Pocket TTS`
-- Create Start Menu shortcuts
-- On first launch, automatically download and install dependencies (~2-3 GB)
-
-NOTE****<mark>:  You cannot just click on the EXE to download it.  Best way to get it if you're not going to clone the repo is click on the green CODE button. then select download Zip.  The EXE will be in that zip file.</mark>****
-
-#### Option 2: Build Installer from Source (on Linux)
-
-```bash
-# On Linux with Wine installed:
-cd build/windows
-bash build_linux.sh
-# Creates: output/Pocket-TTS-Setup-1.0.1.exe
-
-# For detailed build instructions, see build/windows/README.md
-```
-
-**Requirements:**
-
-- Linux host with `wine64` installed: `sudo apt install wine64`
-- `wget` and `unzip` (usually pre-installed)
-- ~4 GB disk space
-- Internet connection for downloading dependencies
-
-Note:  if using Windows with WSL you might need to install C++ runtime etc.  Use AI to help you if needed.
+**This will download all necessary files.  You will probably need to go to the [kyutai/pocket-tts · Hugging Face](https://huggingface.co/kyutai/pocket-tts) page to accept TOS to download the model.  I suggest going there FIRST before running insta..
 
 ### Desktop GUI Application
 
@@ -110,10 +62,12 @@ launch.sh
 
 **Features:**
 
+- Drag-and-drop text file selection
+- Real-time emotion preview
 - Customizable chunking and emotion settings
-- Progress tracking
+- Progress tracking with resume capability
 - Voice cloning from audio prompts
-- Individual chunk regeneration for chunk correction
+- Batch processing of multiple files
 
 ### Smart Text Processing
 

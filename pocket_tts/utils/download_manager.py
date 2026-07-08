@@ -24,13 +24,16 @@ class DownloadWorker(QObject):
     error = Signal(str, str)     # component_name, error_message
 
     def __init__(self, component_name: str, download_info: Dict[str, Any]):
-        """Initialize a download component.
+        """Initialize a new instance of DownloadManager.
         Args:
         component_name (str): The name of the component to download.
-        download_info (Dict[str, Any]): Information needed for downloading.
+        download_info (Dict[str, Any]): Information about where to download the component from.
+        Returns: None
         Cancel the download.
+        Args: None
         Returns: None
         Execute the download.
+        Args: None
         Returns: None
         """
         super().__init__()
@@ -114,42 +117,18 @@ class DownloadManager:
     """Manages runtime downloads of dependencies and models."""
 
     def __init__(self):
-        """Initialize the cache directory and retrieve required components for installation.
+        """Initialize the cache directory and retrieve required components for setup.
         Args:
         None
         Returns:
-        Dict[str, Dict[str, Any]]: A dictionary of required components with URLs and other details.
+        Dict[str, Dict[str, Any]]: Dictionary of required components with their details.
         """
         self.cache_dir = PathManager.get_cache_dir()
         self.required_components = self._get_required_components()
 
     def _get_required_components(self) -> Dict[str, Dict[str, Any]]:
         """Define all components that need to be downloaded."""
-        # Get platform-specific PyTorch URL
-        system = platform.system().lower()
-        machine = platform.machine().lower()
-
-        if system == "linux":
-            if "x86_64" in machine:
-                torch_url = "https://download.pytorch.org/whl/cpu/torch-2.5.0%2Bcpu-cp310-cp310-linux_x86_64.whl"
-            else:
-                torch_url = "https://download.pytorch.org/whl/cpu/torch-2.5.0%2Bcpu-cp310-cp310-manylinux2014_aarch64.whl"
-        elif system == "darwin":  # macOS
-            if "arm64" in machine:
-                torch_url = "https://download.pytorch.org/whl/cpu/torch-2.5.0-cp310-none-macosx_11_0_arm64.whl"
-            else:
-                torch_url = "https://download.pytorch.org/whl/cpu/torch-2.5.0-cp310-none-macosx_10_9_x86_64.whl"
-        elif system == "windows":
-            torch_url = "https://download.pytorch.org/whl/cpu/torch-2.5.0%2Bcpu-cp310-cp310-win_amd64.whl"
-        else:
-            raise DownloadError(f"Unsupported platform: {system} {machine}")
-
         return {
-            "torch": {
-                "url": torch_url,
-                "size": "~200MB",
-                "description": "PyTorch ML framework"
-            },
             "tts_model": {
                 "url": "https://huggingface.co/kyutai/pocket-tts/resolve/main/tts_b6369a24.safetensors",
                 "size": "~50MB",

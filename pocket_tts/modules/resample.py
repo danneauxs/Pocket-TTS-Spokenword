@@ -11,12 +11,12 @@ class ConvDownsample1d(nn.Module):
     """
 
     def __init__(self, stride: int, dimension: int):
-        """Initializes a custom convolutional layer for processing sequential data.
+        """Initialize a StreamingConv1d layer for processing sequences.
         Args:
         stride (int): Stride of the convolution.
-        dimension (int): Dimensionality of the input and output.
+        dimension (int): Dimensionality of the input and output space.
         Returns:
-        torch.Tensor: Output tensor after applying the convolution.
+        torch.Tensor: The result of applying the convolution to the input tensor.
         """
         super().__init__()
         self.conv = StreamingConv1d(
@@ -30,12 +30,12 @@ class ConvDownsample1d(nn.Module):
         )
 
     def forward(self, x: torch.Tensor, model_state: dict | None):
-        """Forward pass through transposed convolutional layer to upsample input tensor `x` by an integer factor defined in `model_state`.
+        """Upsample a 1D tensor by an integer factor using transposed convolutions.
         Args:
-        x (torch.Tensor): Input tensor.
-        model_state (dict | None): Dictionary containing model state, including stride information.
+        x (torch.Tensor): Input tensor to be upsampled.
+        model_state (dict | None): Optional dictionary containing model state information.
         Returns:
-        torch.Tensor: Upsampled output tensor.
+        torch.Tensor: Upsampled tensor.
         """
         return self.conv(x, model_state)
 
@@ -46,12 +46,12 @@ class ConvTrUpsample1d(nn.Module):
     """
 
     def __init__(self, stride: int, dimension: int):
-        """Initializes a transposed convolution layer for processing time-series data.
+        """Initializes a transposed convolutional layer for streaming data.
         Args:
         stride (int): The stride of the convolution.
         dimension (int): The number of input and output channels.
         Returns:
-        torch.Tensor: The result of the transposed convolution operation.
+        torch.Tensor: The output tensor after applying the transposed convolution.
         """
         super().__init__()
         self.convtr = StreamingConvTranspose1d(
@@ -64,11 +64,11 @@ class ConvTrUpsample1d(nn.Module):
         )
 
     def forward(self, x: torch.Tensor, model_state: dict | None):
-        """Performs a forward pass through the transformer layer using input tensor `x` and optional `model_state`.
+        """Applies a convolutional transformation to the input tensor `x` using the provided `model_state`.
         Args:
-        x (torch.Tensor): Input tensor.
-        model_state (dict | None): Optional dictionary containing model state.
+        x (torch.Tensor): The input tensor to be transformed.
+        model_state (dict | None): A dictionary containing the state of the model.
         Returns:
-        torch.Tensor: Output tensor after applying the transformer layer.
+        torch.Tensor: The transformed output tensor.
         """
         return self.convtr(x, model_state)
