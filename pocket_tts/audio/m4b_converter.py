@@ -320,6 +320,7 @@ class WavToM4bConverter:
             raise RuntimeError(f"FFmpeg failed with exit code {e.returncode}")
 
     def _get_ffmpeg_cmd(self) -> str:
+        """Returns true if FFmpeg is available, false otherwise."""
         return self.config.get("ffmpeg_path", "ffmpeg")
 
     @staticmethod

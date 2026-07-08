@@ -3,12 +3,29 @@ from contextlib import contextmanager
 
 
 class PocketTTSFilter(logging.Filter):
+    """A class for filtering logs related to the PocketTTS library.
+    Methods:
+    - filter(record): Returns True if the record's logger name starts with "pocket_tts".
+    @contextmanager function to enable logging for a specific library and temporarily adjust its log level and handlers.
+    """
     def filter(self, record):
+        """Filter records by name prefix.
+        Args:
+        record (Record): The record to filter.
+        Returns:
+        bool: True if the record's name starts with "pocket_tts", False otherwise.
+        """
         return record.name.startswith("pocket_tts")
 
 
 @contextmanager
 def enable_logging(library_name, level):
+    """Enables logging for a specific library by configuring its logger and adjusting the parent logger's level and handlers.
+    Args:
+    library_name (str): The name of the library to enable logging for.
+    level (int): The logging level to set for the parent logger.
+    Returns: None
+    """
     # Get the specific logger and its parent
     logger = logging.getLogger(library_name)
     parent_logger = logging.getLogger("pocket_tts")

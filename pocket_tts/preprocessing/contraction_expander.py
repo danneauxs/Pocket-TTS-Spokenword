@@ -257,6 +257,12 @@ def expand_contractions_case_sensitive(text: str) -> str:
         pattern = r"\b" + re.escape(contraction) + r"\b"
 
         def replace_match(match: re.Match) -> str:
+            """Check if a word is a known contraction.
+            Args:
+            word (str): The word to check.
+            Returns:
+            bool: True if the word is a contraction, False otherwise.
+            """
             original = match.group(0)
             expanded = expansion
             # Preserve capitalization

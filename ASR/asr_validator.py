@@ -135,6 +135,12 @@ def _is_id_like_token(token: str) -> bool:
 
 
 def _format_device(device: Optional[str]) -> str:
+    """Formats a device string to uppercase if it's a string, otherwise returns it as a string.
+    Args:
+    device (Optional[str]): The device string to format.
+    Returns:
+    str: The formatted device string.
+    """
     if isinstance(device, str):
         return device.upper()
     return str(device)
@@ -254,6 +260,12 @@ def normalize(text: str, canon_lookup: dict | None = None) -> Tuple[str, List[Di
 
     # Convert standalone digits to words (but not ID placeholders)
     def digit_to_word(match):
+        """Converts digits in a string to words while preserving IDs and removing punctuation.
+        Args:
+        match (re.Match): The match object containing the digit to convert.
+        Returns:
+        str: The converted word or original match if conversion fails.
+        """
         try:
             num = int(match.group())
             return num2words(num, lang='en')
@@ -1036,6 +1048,14 @@ def validate_batch(tts_dir: Path, threshold: float, progress_queue: queue.Queue,
     canon_lookup = CANON_LOOKUP.copy()
 
     def validate_wrapper(chunk_num):
+        """```
+        Wrapper function to validate chunks using a thread pool.
+        Args:
+        chunk_num (int): The chunk number to be validated.
+        Returns:
+        None
+        ```
+        """
         return validate_single_chunk(chunk_num, tts_dir, threshold, canon_lookup, asr_model, threshold)
 
     # Start timing
@@ -1101,7 +1121,13 @@ def validate_batch(tts_dir: Path, threshold: float, progress_queue: queue.Queue,
 # ============================================================================
 
 class ASRApp:
+    """A graphical user interface (GUI) application for ASR (Automatic Speech Recognition) validation using the faster-whisper library. Initializes the window, loads settings, and sets up widgets and logging redirection."""
     def __init__(self, root):
+        """Initializes the ASR Validation Tool GUI with a specified root window. Sets up the title, size, and loads the last used folder from configuration.
+        Args:
+        - root (tk.Tk): The main application window.
+        Returns: None
+        """
         self.root = root
         self.root.title("ASR Validation Tool (faster-whisper)")
         self.root.geometry("800x600")
@@ -1115,6 +1141,12 @@ class ASRApp:
         self.process_queue()  # Start checking for queue updates
 
     def create_widgets(self):
+        """Creates and organizes widgets for selecting a processing mode and a folder in a GUI application.
+        Args:
+        None
+        Returns:
+        None
+        """
         # Mode selector frame
         mode_frame = ttk.Frame(self.root, padding="5")
         mode_frame.pack(padx=10, pady=5, fill="x")
@@ -1323,6 +1355,12 @@ class ASRApp:
                                      "message": f"Error: {e}"})
 
     def browse_tts_folder(self):
+        """Open a file dialog to select a TTS output folder and update the application's settings accordingly.
+        Args:
+        None
+        Returns:
+        None
+        """
         folder_path = filedialog.askdirectory(parent=self.root, title="Select TTS Output Folder")
         if folder_path:
             selected_path = Path(folder_path)
@@ -1350,15 +1388,33 @@ class ASRApp:
             self.update_log("No folder selected.", 'warning')
 
     def setup_logging_redirect(self):
+        """Redirects logging output to a Tkinter Text widget.
+        Args:
+        None
+        Returns:
+        None
+        """
         # Custom handler to redirect logging to the Tkinter Text widget
         class TextWidgetHandler(logging.Handler):
+            """Handles logging records by emitting them to a text widget via a queue. Formats log messages and sends them as dictionary entries containing the log level and message."""
             def __init__(self, text_widget, queue):
+                """Initialize a custom log handler for a text widget.
+                Args:
+                text_widget: The widget where logs will be displayed.
+                queue: A queue to store log data for further processing or display.
+                Returns: None
+                """
                 super().__init__()
                 self.text_widget = text_widget
                 self.queue = queue
                 self.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
 
             def emit(self, record):
+                """Emit a log record to the handler.
+                Args:
+                record (LogRecord): The log record to emit.
+                Returns: None
+                """
                 msg = self.format(record)
                 tag = record.levelname.lower()
                 self.queue.put({"type": "log", "message": msg, "tag": tag})
@@ -1368,12 +1424,24 @@ class ASRApp:
         logging.getLogger().setLevel(logging.INFO)  # Ensure logger captures info and above
 
     def update_log(self, message, tag='info'):
+        """Update log widget with a message and tag.
+        Args:
+        message (str): The message to add to the log.
+        tag (str, optional): Tag for styling the log entry. Defaults to 'info'.
+        Returns: None
+        """
         self.log_text_widget.config(state='normal')
         self.log_text_widget.insert(tk.END, message + '\n', tag)
         self.log_text_widget.yview(tk.END)
         self.log_text_widget.config(state='disabled')
 
     def process_queue(self):
+        """Processes items in the progress queue, updating the UI based on item type and content.
+        Args:
+        None
+        Returns:
+        None
+        """
         while not self.progress_queue.empty():
             item = self.progress_queue.get_nowait()
             if item["type"] == "status":
@@ -1425,6 +1493,12 @@ class ASRApp:
         self.root.after(100, self.process_queue)  # Check queue every 100ms
 
     def start_validation_thread(self):
+        """Starts a new thread for validating TTS files.
+        Args:
+        None
+        Returns:
+        None
+        """
         if not self.tts_folder_path or not self.tts_folder_path.is_dir():
             messagebox.showerror("Error", "Please select a valid TTS folder.")
             return
@@ -1447,6 +1521,12 @@ class ASRApp:
         validation_thread.start()
 
     def _run_validation_logic(self):
+        """Runs batch validation logic for TTS files.
+        Args:
+        self (object): The instance of the class containing the method.
+        Returns:
+        None
+        """
         try:
             if not self.tts_folder_path:
                 self.progress_queue.put({"type": "finished", "success": False, "message": "No TTS folder selected"})
@@ -1478,6 +1558,14 @@ class ASRApp:
             self.progress_queue.put({"type": "finished", "success": False, "message": f"An unexpected error occurred: {e}"})
 
     def generate_validation_log(self, tts_dir: Path, results: List[Dict[str, Any]], threshold: float):
+        """Generates a validation log for ASR results.
+        Args:
+        tts_dir (Path): The directory containing the TTS files.
+        results (List[Dict[str, Any]]): A list of dictionaries containing the validation results for each chunk.
+        threshold (float): The similarity threshold used in the validation.
+        Returns:
+        None
+        """
         log_path = tts_dir / "validation.log"
         with open(log_path, 'w', encoding='utf-8') as f:
             f.write(f"ASR Validation Report for: {tts_dir}\n")
@@ -1499,6 +1587,13 @@ class ASRApp:
         self.progress_queue.put({"type": "status", "message": f"Generated validation.log at {log_path}"})
 
     def generate_fail_log(self, tts_dir: Path, failed_results: List[Dict[str, Any]], threshold: float):
+        """Generates a failure log for ASR chunks.
+        Args:
+        tts_dir (Path): The directory containing the TTS files.
+        failed_results (List[Dict[str, Any]]): A list of dictionaries containing failed results and their details.
+        threshold (float): The similarity threshold used for validation.
+        Returns: None
+        """
         log_path = tts_dir / "fail.log"
         with open(log_path, 'w', encoding='utf-8') as f:
             f.write(f"ASR Failed Chunks Report for: {tts_dir}\n")
@@ -1558,6 +1653,13 @@ def monitor_and_validate_folder(folder_path: str, log_file: str, threshold: floa
     shutdown_requested = False
 
     def signal_handler(sig, frame):
+        """Handles signal interrupts to gracefully shut down the program.
+        Args:
+        sig: The signal number.
+        frame: The current stack frame.
+        Returns:
+        None
+        """
         nonlocal shutdown_requested
         shutdown_requested = True
         print("\n🛑 Shutdown signal received...")

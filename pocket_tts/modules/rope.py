@@ -66,6 +66,14 @@ class RotaryEmbedding(nn.Module):
     """
 
     def __init__(self, max_period: float | int = 10000.0):
+        """Applies rope rotation to query or key tensor.
+        Args:
+        q (torch.Tensor): The query tensor.
+        k (torch.Tensor): The key tensor.
+        offset (torch.Tensor | int): The offset for rope rotation.
+        Returns:
+        torch.Tensor: The rotated tensor.
+        """
         super().__init__()
         self.max_period = max_period
 

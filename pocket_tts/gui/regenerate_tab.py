@@ -30,6 +30,7 @@ class RegenerateTab(QWidget):
     """Tab for regenerating individual audio chunks."""
 
     def __init__(self):
+        """Initializes the user interface components."""
         super().__init__()
         self.tts_folder = None
         self.chunks_data = {}  # Dict[int, chunk_metadata]
@@ -689,6 +690,7 @@ class RegenerateTab(QWidget):
         cancel_btn = QPushButton("Cancel")
 
         def apply_emotion():
+            """Handles the application of an emotion selected by the user. Updates in-memory chunk data and closes the dialog upon clicking OK or cancels on cancellation."""
             selected_emotion = override_combo.currentText().lower()
             # Update in-memory chunk data (not saved to disk)
             self.current_chunk['emotion'] = selected_emotion

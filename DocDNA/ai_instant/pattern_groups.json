@@ -1,0 +1,1172 @@
+{
+  "threading_imports": [
+    {
+      "file": "ASR/asr_validator.py",
+      "import": "threading",
+      "line": 20
+    },
+    {
+      "file": "pocket_tts/main.py",
+      "import": "threading",
+      "line": 5
+    },
+    {
+      "file": "pocket_tts/models/tts_model.py",
+      "import": "threading",
+      "line": 6
+    }
+  ],
+  "threading_usage": [
+    {
+      "file": "ASR/asr_validator.py",
+      "pattern": "ThreadPoolExecutor",
+      "line": 1045
+    },
+    {
+      "file": "ASR/asr_validator.py",
+      "pattern": "threading.Thread",
+      "line": 1274
+    },
+    {
+      "file": "ASR/asr_validator.py",
+      "pattern": "threading.Thread",
+      "line": 1445
+    },
+    {
+      "file": "pocket_tts/main.py",
+      "pattern": "threading.Thread",
+      "line": 100
+    },
+    {
+      "file": "pocket_tts/models/tts_model.py",
+      "pattern": "threading.Thread",
+      "line": 425
+    },
+    {
+      "file": "pocket_tts/models/tts_model.py",
+      "pattern": "threading.Thread",
+      "line": 510
+    }
+  ],
+  "gui_frameworks": [
+    {
+      "file": "ASR/asr_validator.py",
+      "framework": "tkinter",
+      "line": 11
+    }
+  ],
+  "gui_threading": [
+    {
+      "file": "ASR/asr_validator.py",
+      "pattern": "GUI thread delegation",
+      "line": 1425,
+      "method": "self.root.after"
+    },
+    {
+      "file": "pocket_tts/gui/main_window.py",
+      "pattern": "GUI thread delegation",
+      "line": 260,
+      "method": "self.frames_after_eos_spin.setRange"
+    },
+    {
+      "file": "pocket_tts/gui/main_window.py",
+      "pattern": "GUI thread delegation",
+      "line": 266,
+      "method": "self.frames_after_eos_spin.setValue"
+    },
+    {
+      "file": "pocket_tts/gui/main_window.py",
+      "pattern": "GUI thread delegation",
+      "line": 793,
+      "method": "self.frames_after_eos_spin.value"
+    }
+  ],
+  "error_handling": [
+    {
+      "file": "ASR/asr_validator.py",
+      "exceptions": [
+        "<ast.Tuple object at 0x73b255b91450>"
+      ],
+      "has_finally": true,
+      "line": 473
+    },
+    {
+      "file": "ASR/asr_validator.py",
+      "exceptions": [
+        "IOError"
+      ],
+      "has_finally": true,
+      "line": 490
+    },
+    {
+      "file": "ASR/asr_validator.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 504
+    },
+    {
+      "file": "ASR/asr_validator.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 582
+    },
+    {
+      "file": "ASR/asr_validator.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 804
+    },
+    {
+      "file": "ASR/asr_validator.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 840
+    },
+    {
+      "file": "ASR/asr_validator.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 863
+    },
+    {
+      "file": "ASR/asr_validator.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 1568
+    },
+    {
+      "file": "ASR/asr_validator.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 605
+    },
+    {
+      "file": "ASR/asr_validator.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 1280
+    },
+    {
+      "file": "ASR/asr_validator.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 1450
+    },
+    {
+      "file": "ASR/asr_validator.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 1536
+    },
+    {
+      "file": "ASR/asr_validator.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 1570
+    },
+    {
+      "file": "ASR/asr_validator.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 591
+    },
+    {
+      "file": "ASR/asr_validator.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 1049
+    },
+    {
+      "file": "ASR/asr_validator.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 1609
+    },
+    {
+      "file": "pocket_tts/__init__.py",
+      "exceptions": [
+        "ImportError"
+      ],
+      "has_finally": true,
+      "line": 1
+    },
+    {
+      "file": "pocket_tts/__init__.py",
+      "exceptions": [
+        "ImportError"
+      ],
+      "has_finally": true,
+      "line": 10
+    },
+    {
+      "file": "pocket_tts/audio/m4b_converter.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 79
+    },
+    {
+      "file": "pocket_tts/audio/m4b_converter.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 267
+    },
+    {
+      "file": "pocket_tts/audio/m4b_converter.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 283
+    },
+    {
+      "file": "pocket_tts/audio/m4b_converter.py",
+      "exceptions": [
+        "subprocess.CalledProcessError"
+      ],
+      "has_finally": true,
+      "line": 313
+    },
+    {
+      "file": "pocket_tts/audio/m4b_converter.py",
+      "exceptions": [
+        "<ast.Tuple object at 0x73b255b34150>"
+      ],
+      "has_finally": true,
+      "line": 328
+    },
+    {
+      "file": "pocket_tts/audio/m4b_converter.py",
+      "exceptions": [
+        "json.JSONDecodeError"
+      ],
+      "has_finally": true,
+      "line": 170
+    },
+    {
+      "file": "pocket_tts/audiobook/generator (copy).py",
+      "exceptions": [
+        "ImportError",
+        "ImportError"
+      ],
+      "has_finally": true,
+      "line": 13
+    },
+    {
+      "file": "pocket_tts/audiobook/generator (copy).py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 965
+    },
+    {
+      "file": "pocket_tts/audiobook/generator (copy).py",
+      "exceptions": [
+        "ImportError"
+      ],
+      "has_finally": true,
+      "line": 26
+    },
+    {
+      "file": "pocket_tts/audiobook/generator (copy).py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 109
+    },
+    {
+      "file": "pocket_tts/audiobook/generator (copy).py",
+      "exceptions": [
+        "Exception",
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 355
+    },
+    {
+      "file": "pocket_tts/audiobook/generator (copy).py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 738
+    },
+    {
+      "file": "pocket_tts/audiobook/generator (copy).py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 748
+    },
+    {
+      "file": "pocket_tts/audiobook/generator (copy).py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 758
+    },
+    {
+      "file": "pocket_tts/audiobook/generator (copy).py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 826
+    },
+    {
+      "file": "pocket_tts/audiobook/generator (copy).py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 867
+    },
+    {
+      "file": "pocket_tts/audiobook/generator (copy).py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 681
+    },
+    {
+      "file": "pocket_tts/audiobook/generator (copy).py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 1002
+    },
+    {
+      "file": "pocket_tts/audiobook/generator (copy).py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 1016
+    },
+    {
+      "file": "pocket_tts/audiobook/generator (copy).py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 512
+    },
+    {
+      "file": "pocket_tts/audiobook/generator (copy).py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 557
+    },
+    {
+      "file": "pocket_tts/audiobook/generator (copy).py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 724
+    },
+    {
+      "file": "pocket_tts/audiobook/generator.py",
+      "exceptions": [
+        "ImportError",
+        "ImportError"
+      ],
+      "has_finally": true,
+      "line": 14
+    },
+    {
+      "file": "pocket_tts/audiobook/generator.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 1459
+    },
+    {
+      "file": "pocket_tts/audiobook/generator.py",
+      "exceptions": [
+        "ImportError"
+      ],
+      "has_finally": true,
+      "line": 27
+    },
+    {
+      "file": "pocket_tts/audiobook/generator.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 114
+    },
+    {
+      "file": "pocket_tts/audiobook/generator.py",
+      "exceptions": [
+        "Exception",
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 361
+    },
+    {
+      "file": "pocket_tts/audiobook/generator.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 815
+    },
+    {
+      "file": "pocket_tts/audiobook/generator.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 825
+    },
+    {
+      "file": "pocket_tts/audiobook/generator.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 835
+    },
+    {
+      "file": "pocket_tts/audiobook/generator.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 931
+    },
+    {
+      "file": "pocket_tts/audiobook/generator.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 972
+    },
+    {
+      "file": "pocket_tts/audiobook/generator.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 1057
+    },
+    {
+      "file": "pocket_tts/audiobook/generator.py",
+      "exceptions": [
+        "subprocess.TimeoutExpired",
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 1306
+    },
+    {
+      "file": "pocket_tts/audiobook/generator.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 775
+    },
+    {
+      "file": "pocket_tts/audiobook/generator.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 1145
+    },
+    {
+      "file": "pocket_tts/audiobook/generator.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 1494
+    },
+    {
+      "file": "pocket_tts/audiobook/generator.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 1507
+    },
+    {
+      "file": "pocket_tts/audiobook/generator.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 422
+    },
+    {
+      "file": "pocket_tts/audiobook/generator.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 558
+    },
+    {
+      "file": "pocket_tts/audiobook/generator.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 604
+    },
+    {
+      "file": "pocket_tts/audiobook/generator.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 649
+    },
+    {
+      "file": "pocket_tts/audiobook/generator.py",
+      "exceptions": [
+        "json.JSONDecodeError"
+      ],
+      "has_finally": true,
+      "line": 1354
+    },
+    {
+      "file": "pocket_tts/audiobook/generator.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 576
+    },
+    {
+      "file": "pocket_tts/audiobook/generator.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 1101
+    },
+    {
+      "file": "pocket_tts/audiobook/generator.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 1232
+    },
+    {
+      "file": "pocket_tts/audiobook/generator.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 1261
+    },
+    {
+      "file": "pocket_tts/audiobook/generator.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 1220
+    },
+    {
+      "file": "pocket_tts/audiobook/generator.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 1249
+    },
+    {
+      "file": "pocket_tts/audiobook/generator.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 1224
+    },
+    {
+      "file": "pocket_tts/audiobook/generator.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 1253
+    },
+    {
+      "file": "pocket_tts/config/__init__.py",
+      "exceptions": [
+        "ImportError"
+      ],
+      "has_finally": true,
+      "line": 7
+    },
+    {
+      "file": "pocket_tts/config/__init__.py",
+      "exceptions": [
+        "ImportError"
+      ],
+      "has_finally": true,
+      "line": 13
+    },
+    {
+      "file": "pocket_tts/config/__init__.py",
+      "exceptions": [
+        "ValueError"
+      ],
+      "has_finally": true,
+      "line": 202
+    },
+    {
+      "file": "pocket_tts/config/__init__.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 176
+    },
+    {
+      "file": "pocket_tts/data/voice_converter.py",
+      "exceptions": [
+        "subprocess.TimeoutExpired",
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 61
+    },
+    {
+      "file": "pocket_tts/data/voice_converter.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 96
+    },
+    {
+      "file": "pocket_tts/gui/main_window.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 73
+    },
+    {
+      "file": "pocket_tts/gui/main_window.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 83
+    },
+    {
+      "file": "pocket_tts/gui/main_window.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 765
+    },
+    {
+      "file": "pocket_tts/gui/main_window.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 1005
+    },
+    {
+      "file": "pocket_tts/gui/regenerate_tab.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 296
+    },
+    {
+      "file": "pocket_tts/gui/regenerate_tab.py",
+      "exceptions": [
+        "ValueError"
+      ],
+      "has_finally": true,
+      "line": 411
+    },
+    {
+      "file": "pocket_tts/gui/regenerate_tab.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 466
+    },
+    {
+      "file": "pocket_tts/gui/regenerate_tab.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 729
+    },
+    {
+      "file": "pocket_tts/gui/regenerate_tab.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 777
+    },
+    {
+      "file": "pocket_tts/gui/regenerate_tab.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 892
+    },
+    {
+      "file": "pocket_tts/gui/regenerate_tab.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 951
+    },
+    {
+      "file": "pocket_tts/gui/regenerate_tab.py",
+      "exceptions": [
+        "<ast.Tuple object at 0x73b255bb0590>"
+      ],
+      "has_finally": true,
+      "line": 450
+    },
+    {
+      "file": "pocket_tts/gui/regenerate_tab.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 843
+    },
+    {
+      "file": "pocket_tts/gui/setup_window.py",
+      "exceptions": [
+        "<ast.Tuple object at 0x73b255bf0810>"
+      ],
+      "has_finally": true,
+      "line": 272
+    },
+    {
+      "file": "pocket_tts/gui/setup_window.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 287
+    },
+    {
+      "file": "pocket_tts/gui/setup_window.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 389
+    },
+    {
+      "file": "pocket_tts/main.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 509
+    },
+    {
+      "file": "pocket_tts/models/tts_model.py",
+      "exceptions": [
+        "ImportError"
+      ],
+      "has_finally": true,
+      "line": 644
+    },
+    {
+      "file": "pocket_tts/models/tts_model.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 267
+    },
+    {
+      "file": "pocket_tts/models/tts_model.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 148
+    },
+    {
+      "file": "pocket_tts/models/tts_model.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 497
+    },
+    {
+      "file": "pocket_tts/preprocessing/emotion_analyzer.py",
+      "exceptions": [
+        "ImportError"
+      ],
+      "has_finally": true,
+      "line": 11
+    },
+    {
+      "file": "pocket_tts/preprocessing/emotion_analyzer.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 72
+    },
+    {
+      "file": "pocket_tts/preprocessing/emotion_analyzer.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 106
+    },
+    {
+      "file": "pocket_tts/preprocessing/emotion_analyzer.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 197
+    },
+    {
+      "file": "pocket_tts/preprocessing/parameter_mapper.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 295
+    },
+    {
+      "file": "pocket_tts/preprocessing/schema.py",
+      "exceptions": [
+        "ImportError"
+      ],
+      "has_finally": true,
+      "line": 241
+    },
+    {
+      "file": "pocket_tts/preprocessing/structure_detector.py",
+      "exceptions": [
+        "ImportError"
+      ],
+      "has_finally": true,
+      "line": 134
+    },
+    {
+      "file": "pocket_tts/preprocessing/structure_detector.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 200
+    },
+    {
+      "file": "pocket_tts/test_gui.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 15
+    },
+    {
+      "file": "pocket_tts/utils/download_manager.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 38
+    },
+    {
+      "file": "pocket_tts/utils/download_manager.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 60
+    },
+    {
+      "file": "pocket_tts/utils/download_manager.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 96
+    },
+    {
+      "file": "pocket_tts/utils/download_manager.py",
+      "exceptions": [
+        "Exception"
+      ],
+      "has_finally": true,
+      "line": 214
+    }
+  ],
+  "gui_error_display": [
+    {
+      "file": "ASR/asr_validator.py",
+      "method": "messagebox.showwarning",
+      "line": 1264
+    },
+    {
+      "file": "ASR/asr_validator.py",
+      "method": "messagebox.showerror",
+      "line": 1429
+    },
+    {
+      "file": "ASR/asr_validator.py",
+      "method": "messagebox.showerror",
+      "line": 1436
+    }
+  ],
+  "model_loading": [
+    {
+      "file": "ASR/asr_validator.py",
+      "variable": "asr_model",
+      "loader": "WhisperModel",
+      "line": 583
+    },
+    {
+      "file": "ASR/asr_validator.py",
+      "variable": "asr_model",
+      "loader": "WhisperModel",
+      "line": 593
+    },
+    {
+      "file": "pocket_tts/audiobook/generator (copy).py",
+      "variable": "model_load_start",
+      "loader": "time.time",
+      "line": 970
+    },
+    {
+      "file": "pocket_tts/audiobook/generator (copy).py",
+      "variable": "tts_model",
+      "loader": "TTSModel.load_model",
+      "line": 971
+    },
+    {
+      "file": "pocket_tts/audiobook/generator.py",
+      "variable": "model_load_start",
+      "loader": "time.time",
+      "line": 1464
+    },
+    {
+      "file": "pocket_tts/audiobook/generator.py",
+      "variable": "tts_model",
+      "loader": "TTSModel.load_model",
+      "line": 1465
+    },
+    {
+      "file": "pocket_tts/gui/regenerate_tab.py",
+      "variable": "model",
+      "loader": "self._ensure_tts_model_loaded",
+      "line": 798
+    },
+    {
+      "file": "pocket_tts/main.py",
+      "variable": "tts_model",
+      "loader": "TTSModel.load_model",
+      "line": 187
+    },
+    {
+      "file": "pocket_tts/main.py",
+      "variable": "global_model_state",
+      "loader": "tts_model.get_state_for_audio_prompt",
+      "line": 190
+    },
+    {
+      "file": "pocket_tts/main.py",
+      "variable": "model_state",
+      "loader": "tts_model._cached_get_state_for_audio_prompt",
+      "line": 146
+    },
+    {
+      "file": "pocket_tts/main.py",
+      "variable": "tts_model",
+      "loader": "TTSModel.load_model",
+      "line": 234
+    },
+    {
+      "file": "pocket_tts/main.py",
+      "variable": "model_state_for_voice",
+      "loader": "tts_model.get_state_for_audio_prompt",
+      "line": 239
+    },
+    {
+      "file": "pocket_tts/main.py",
+      "variable": "tts_model",
+      "loader": "TTSModel.load_model",
+      "line": 360
+    },
+    {
+      "file": "pocket_tts/main.py",
+      "variable": "model_state_for_voice",
+      "loader": "tts_model.get_state_for_audio_prompt",
+      "line": 367
+    },
+    {
+      "file": "pocket_tts/main.py",
+      "variable": "tts_model",
+      "loader": "TTSModel.load_model",
+      "line": 499
+    },
+    {
+      "file": "pocket_tts/main.py",
+      "variable": "model_state_for_voice",
+      "loader": "tts_model.get_state_for_audio_prompt",
+      "line": 523
+    },
+    {
+      "file": "pocket_tts/main.py",
+      "variable": "model_state",
+      "loader": "tts_model.get_state_for_audio_prompt",
+      "line": 156
+    },
+    {
+      "file": "pocket_tts/models/tts_model.py",
+      "variable": "tts_model",
+      "loader": "cls",
+      "line": 81
+    },
+    {
+      "file": "pocket_tts/models/tts_model.py",
+      "variable": "tts_model",
+      "loader": "cls._from_pydantic_config",
+      "line": 88
+    },
+    {
+      "file": "pocket_tts/models/tts_model.py",
+      "variable": "tts_model",
+      "loader": "TTSModel._from_pydantic_config_with_weights",
+      "line": 201
+    },
+    {
+      "file": "pocket_tts/models/tts_model.py",
+      "variable": "model_state",
+      "loader": "init_states",
+      "line": 630
+    },
+    {
+      "file": "pocket_tts/models/tts_model.py",
+      "variable": "model_state",
+      "loader": "copy.deepcopy",
+      "line": 418
+    },
+    {
+      "file": "pocket_tts/modules/seanet.py",
+      "variable": "model",
+      "loader": "nn.ModuleList",
+      "line": 70
+    },
+    {
+      "file": "pocket_tts/modules/seanet.py",
+      "variable": "model",
+      "loader": "nn.ModuleList",
+      "line": 141
+    },
+    {
+      "file": "pocket_tts/utils/config.py",
+      "variable": "model_config",
+      "loader": "ConfigDict",
+      "line": 10
+    }
+  ],
+  "double_check_locking": [
+    {
+      "file": "ASR/asr_validator.py",
+      "pattern": "double-check locking"
+    },
+    {
+      "file": "pocket_tts/gui/main_window.py",
+      "pattern": "double-check locking"
+    }
+  ],
+  "global_models": [
+    {
+      "file": "pocket_tts/main.py",
+      "variable": "tts_model",
+      "line": 186
+    },
+    {
+      "file": "pocket_tts/main.py",
+      "variable": "global_model_state",
+      "line": 186
+    }
+  ],
+  "async_functions": [
+    {
+      "file": "pocket_tts/main.py",
+      "function": "root",
+      "line": 63
+    },
+    {
+      "file": "pocket_tts/main.py",
+      "function": "health",
+      "line": 70
+    },
+    {
+      "file": "pocket_tts/utils/download_manager.py",
+      "function": "_download_async",
+      "line": 43
+    }
+  ]
+}

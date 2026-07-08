@@ -19,6 +19,13 @@ _PUNCT_ORDER = ["...", "--", ";", ":", ".", "!", "?", ","]
 
 
 def inject_pauses_for_punctuation(text: str, pause_map: Dict[str, float]) -> str:
+    """Inject pauses at specified punctuation marks in a given text.
+    Args:
+    text (str): The input text to process.
+    pause_map (Dict[str, float]): A dictionary mapping punctuation marks to pause durations.
+    Returns:
+    str: The modified text with pause markers inserted.
+    """
     result = text
     for punct in _PUNCT_ORDER:
         if punct in pause_map and pause_map[punct] > 0:
@@ -71,6 +78,14 @@ def parse_text_with_pauses(raw: str):
 
 
 def generate_audio_with_pauses(tts_model, voice_state, raw_text: str):
+    """Generates audio from raw text using a TTS model, incorporating pauses.
+    Args:
+    tts_model (TTSModel): The Text-to-Speech model to use for generating audio.
+    voice_state (VoiceState): Current voice state settings.
+    raw_text (str): The input text to be converted into speech with pauses.
+    Returns:
+    bytes: Audio data generated from the input text.
+    """
     events, pauses = parse_text_with_pauses(raw_text)
     logger.debug(f"Injected text: {repr(raw_text[:100])}")
     logger.debug(f"Parsed events: {events[:10]}")  # First 10 events

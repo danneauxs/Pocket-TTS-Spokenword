@@ -1,0 +1,140 @@
+# AI Development Agent Prompt — DocDNA
+
+## 1. Core Purpose
+
+DocDNA is your **primary knowledge system** for every project that has a `DocDNA/` folder. Consult it first — before grep, before reading source files, before anything.
+
+**Do NOT read JSON or Markdown files in DocDNA/ directly.** They exist for human readers. Use `docdna-query` instead — it returns the same data from the SQLite database in ~40ms with full-text search.
+
+---
+
+## 2. docdna-query CLI Reference
+
+### Usage
+
+```
+docdna-query /path/to/project --subcommand [args...]
+```
+
+### Subcommands
+
+| Subcommand | What it returns | Example |
+|---|---|---|
+| `--overview` | Project stats, files, modules, architecture categories | `docdna-query . --overview` |
+| `--function <name>` | Full signature, docstring, args+types, return type, decorators, file:line, code snippet | `docdna-query . --function apply_edits` |
+| `--class <name>` | Methods, inheritance, docstring, file:line | `docdna-query . --class NumberReviewWindow` |
+| `--search "<text>"` | FTS5-ranked matches across functions, code, FAQs (~2ms) | `docdna-query . --search "error handling"` |
+| `--callgraph <name>` | Callers + callees with file:line. Use `--depth N` for transitive | `docdna-query . --callgraph apply_edits --depth 2` |
+| `--file <path>` | All functions/classes/imports in one file | `docdna-query . --file review_window.py` |
+| `--faq <topic>` | Matching FAQs from project knowledge | `docdna-query . --faq "review window"` |
+| `--where-used <name>` | Every file+line referencing a function/class | `docdna-query . --where-used validate_email` |
+| `--dead-code` | Functions with zero callers in call graph | `docdna-query . --dead-code` |
+| `--impact <name>` | All transitive callers (what breaks if this changes) | `docdna-query . --impact apply_edits` |
+| `--imports <name>` | Import resolution for a symbol | `docdna-query . --imports QTextEdit` |
+
+### Flags
+
+- `--json` — Output structured JSON instead of markdown
+- `--brief` — Minimal one-line summaries
+
+### Workflow Examples
+
+**"What does this project do?"**
+```
+docdna-query . --overview
+```
+
+**"I got a traceback with `get_proposals` — what does it do?"**
+```
+docdna-query . --function get_proposals
+```
+
+**"Where is QTextEdit used?"**
+```
+docdna-query . --search "QTextEdit"
+```
+
+**"What calls apply_edits and what does it call?"**
+```
+docdna-query . --callgraph apply_edits
+```
+
+**"Show everything in review_window.py"**
+```
+docdna-query . --file review_window.py
+```
+
+---
+
+## 3. Keeping DocDNA Current — Mr. Smith
+
+After you edit any `.py` file in this project, the database is stale. Ask Mr. Smith to sync it:
+
+> **"Mr. Smith, sync the changes to paths.py"**
+
+This re-parses only the changed files, detects new/changed functions, generates missing docstrings via AI, and updates the database. Takes ~300ms per file.
+
+If you've made many changes, you can also run:
+
+```
+docdna-query . --dead-code
+```
+
+...to check if any functions are now unused.
+
+---
+
+## 4. DB Schema Reference
+
+For advanced queries that `docdna-query` can't answer, use raw SQL against `DocDNA/docdna.db`.
+
+### Main Tables
+
+| Table | Key columns | Row count (typical) |
+|---|---|---|
+| `functions` | name, file, line, args (JSON), docstring, decorators (JSON), is_method, return_type, inferred_purpose, confidence, source, params (JSON with source_hash) | ~154 |
+| `classes` | name, file, line, bases (JSON), docstring, methods (JSON), params (JSON) | ~14 |
+| `call_graph` | caller, callee, caller_file, callee_file | ~883 |
+| `faqs` | question, answer, refs (JSON), source | ~30 |
+| `architecture_insights` | category, description, details (JSON) | ~4 |
+| `code_content` | file, line_number, content, indentation | ~4400 |
+| `imports` | file, line_number, module, alias, from_module | ~159 |
+| `files` | path, line_count, docstring, module_name, purpose | ~14 |
+
+### FTS5 Virtual Tables (Full-Text Search, ~2ms)
+
+| Virtual table | Covers | Example |
+|---|---|---|
+| `functions_fts` | name, file, docstring, args, inferred_purpose | `SELECT * FROM functions_fts WHERE functions_fts MATCH '"error"'` |
+| `code_fts` | file, content (all source code) | `SELECT * FROM code_fts WHERE code_fts MATCH '"QTextEdit"'` |
+| `faqs_fts` | question, answer | `SELECT * FROM faqs_fts WHERE faqs_fts MATCH '"processor"'` |
+
+---
+
+## 5. MCP Integration (opencode)
+
+Add to `.opencode/opencode.json`:
+
+```json
+{
+  "mcp": {
+    "docdna": {
+      "type": "local",
+      "command": ["python3", "/path/to/docdna_query.py", "--mcp"],
+      "env": { "DOCDNA_ROOT": "${workspaceRoot}/DocDNA" },
+      "enabled": true
+    }
+  }
+}
+```
+
+This exposes these native tools: `docdna__function`, `docdna__search`, `docdna__callgraph`, `docdna__file`, `docdna__faq`, `docdna__where_used`, `docdna__dead_code`, `docdna__impact`, `docdna__imports`, `docdna__overview`.
+
+---
+
+## 6. Response Guidelines
+
+- **Direct questions**: Use `docdna-query` first. Do NOT read JSON/MD files directly.
+- **Error tracebacks**: Search the function name with `--function`, then trace with `--callgraph`.
+- **Feature research**: Use `--search` to find relevant code, `--file` for module overview, `--callgraph` for dependencies.
+- **After editing code**: Ask Mr. Smith to sync.

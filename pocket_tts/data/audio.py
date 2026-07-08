@@ -43,6 +43,11 @@ class StreamingWAVWriter:
     """WAV writer using Python's standard library wave module."""
 
     def __init__(self, output_stream, sample_rate: int):
+        """Initialize WAV writer with header.
+        Args:
+        sample_rate (int): Sample rate for the WAV file.
+        Returns: None
+        """
         self.output_stream = output_stream
         self.sample_rate = sample_rate
         self.wave_writer = None
@@ -79,6 +84,12 @@ class StreamingWAVWriter:
         self.wave_writer.writeframesraw(chunk_bytes)
 
     def _flush(self):
+        """Closes the wave writer and appends 200ms of silence.
+        Args:
+        None
+        Returns:
+        None
+        """
         if self.first_chunk_buffer is not None:
             self.wave_writer.writeframesraw(b"".join(self.first_chunk_buffer))
             self.first_chunk_buffer = None

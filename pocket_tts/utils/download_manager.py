@@ -24,6 +24,15 @@ class DownloadWorker(QObject):
     error = Signal(str, str)     # component_name, error_message
 
     def __init__(self, component_name: str, download_info: Dict[str, Any]):
+        """Initialize a download component.
+        Args:
+        component_name (str): The name of the component to download.
+        download_info (Dict[str, Any]): Information needed for downloading.
+        Cancel the download.
+        Returns: None
+        Execute the download.
+        Returns: None
+        """
         super().__init__()
         self.component_name = component_name
         self.download_info = download_info
@@ -105,6 +114,12 @@ class DownloadManager:
     """Manages runtime downloads of dependencies and models."""
 
     def __init__(self):
+        """Initialize the cache directory and retrieve required components for installation.
+        Args:
+        None
+        Returns:
+        Dict[str, Dict[str, Any]]: A dictionary of required components with URLs and other details.
+        """
         self.cache_dir = PathManager.get_cache_dir()
         self.required_components = self._get_required_components()
 

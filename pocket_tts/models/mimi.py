@@ -13,6 +13,13 @@ logger = logging.getLogger()
 
 
 class MimiModel(nn.Module):
+    """A neural network model combining an encoder and a decoder for processing sequential data.
+    - `encoder`: The encoder module for feature extraction.
+    - `decoder`: The decoder module for generating output from encoded features.
+    - `quantizer`: A quantization module to reduce the precision of intermediate representations.
+    - `frame_rate`, `encoder_frame_rate`, `sample_rate`: Parameters related to time and audio processing.
+    - `channels`: Number of audio channels in the input data.
+    """
     def __init__(
         self,
         encoder: SEANetEncoder,
@@ -25,6 +32,20 @@ class MimiModel(nn.Module):
         encoder_transformer: ProjectedTransformer,
         decoder_transformer: ProjectedTransformer,
     ):
+        """Initializes a SEANet model.
+        Args:
+        - encoder (SEANetEncoder): The encoder module.
+        - decoder (SEANetDecoder): The decoder module.
+        - quantizer (DummyQuantizer): The quantization module.
+        - frame_rate (float): The input frame rate.
+        - encoder_frame_rate (float): The encoder-specific frame rate.
+        - sample_rate (int): The audio sampling rate.
+        - channels (int): The number of audio channels.
+        - encoder_transformer (ProjectedTransformer): The transformer for the encoder.
+        - decoder_transformer (ProjectedTransformer): The transformer for the decoder.
+        Returns:
+        None
+        """
         super().__init__()
         self.encoder = encoder
         self.decoder = decoder
@@ -55,9 +76,33 @@ class MimiModel(nn.Module):
 
     @property
     def frame_size(self) -> int:
+        """Calculate the size of a frame based on sample rate and frame rate.
+        Args:
+        None
+        Returns:
+        int: The calculated frame size
+        Convert input tensor from encoder frame rate to overall frame rate.
+        Args:
+        x (torch.Tensor): Input tensor
+        Returns:
+        torch.Tensor: Tensor converted to overall frame rate
+        Convert input tensor from overall frame rate to encoder frame rate.
+        Args:
+        x (torch.Tensor): Input tensor
+        mimi_state (any): State variable for the model (not used)
+        Returns:
+        torch.Tensor: Tensor converted to encoder frame rate
+        """
         return int(self.sample_rate / self.frame_rate)
 
     def _to_framerate(self, x: torch.Tensor):
+        """Converts a tensor's frame rate from the overall rate to the encoder rate.
+        Args:
+        x: Input tensor.
+        mimi_state: State for the downsample function (unused).
+        Returns:
+        Tensor with frame rate converted to encoder rate.
+        """
         # Convert from the encoder frame rate to the overall framerate.
         _, _, length = x.shape
         frame_rate = self.encoder_frame_rate
@@ -67,6 +112,13 @@ class MimiModel(nn.Module):
         return self.downsample(x, model_state=None)
 
     def _to_encoder_framerate(self, x: torch.Tensor, mimi_state) -> torch.Tensor:
+        """Converts input tensor from overall frame rate to encoder frame rate and then decodes it using a transformer.
+        Args:
+        latent: Input tensor of shape (batch_size, num_channels, length).
+        mimi_state: State object containing additional information for decoding.
+        Returns:
+        Decoded output tensor of the same shape as input.
+        """
         # Convert from overall framerate to the encoder frame rate.
         _, _, length = x.shape
         frame_rate = self.encoder_frame_rate
@@ -76,9 +128,23 @@ class MimiModel(nn.Module):
         return self.upsample(x, mimi_state)
 
     def forward(self, x: torch.Tensor):
+        """Decodes a latent tensor back to waveform.
+        Args:
+        latent (torch.Tensor): Latent tensor.
+        mimi_state: State for the decoder transformer and decoder.
+        Returns:
+        torch.Tensor: Decoded waveform tensor.
+        """
         raise NotImplementedError()
 
     def decode_from_latent(self, latent: torch.Tensor, mimi_state) -> torch.Tensor:
+        """Decodes a latent tensor back to waveforms using the decoder and transformer.
+        Args:
+        latent (torch.Tensor): Latent tensor to decode.
+        mimi_state: State information for the model.
+        Returns:
+        Decoded waveform tensor.
+        """
         emb = self._to_encoder_framerate(latent, mimi_state)
         (emb,) = self.decoder_transformer(emb, mimi_state)
         out = self.decoder(emb, mimi_state)

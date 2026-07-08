@@ -66,6 +66,19 @@ class FlowLMModel(nn.Module):
         text_padding_weight: float = 1.0,
         dtype=None,
     ):
+        """Initialize the model with components and parameters.
+        Args:
+        - conditioner (LUTConditioner): The conditioning module.
+        - flow_net (SimpleMLPAdaLN): The flow network component.
+        - transformer (StreamingTransformer): The transformer for processing sequences.
+        - dim (int, optional): Dimension of the embedding space. Default is 128.
+        - ldim (int, optional): Local dimension used in some layers. Default is 64.
+        - stats_ema_decay (float, optional): Exponential moving average decay for statistics. Default is 0.999.
+        - text_padding_weight (float, optional): Weight assigned to padding tokens during processing. Default is 1.0.
+        - dtype: Data type of the tensors. If None, uses default.
+        Returns:
+        None
+        """
         super().__init__()
         self.conditioner = conditioner
         self.ldim = ldim
@@ -86,6 +99,18 @@ class FlowLMModel(nn.Module):
 
     @property
     def device(self) -> str:
+        """Returns the type of device for parameters.
+        Args:
+        sequence (torch.Tensor): Input tensor of shape [B, S, ldim].
+        text_embeddings (torch.Tensor): Tensor containing text embeddings.
+        model_state (dict): Dictionary containing the current state of the model.
+        lsd_decode_steps (int): Number of decoding steps.
+        temp (float): Temperature for sampling.
+        noise_clamp (float | None): Clamping value for noise, or None if not applicable.
+        eos_threshold (float): Threshold for end-of-sequence token.
+        Returns:
+        tuple[torch.Tensor, torch.Tensor]: A tuple containing the loss and output tensor.
+        """
         return next(self.parameters()).device.type
 
     def forward(
@@ -136,6 +161,15 @@ class FlowLMModel(nn.Module):
     def backbone(
         self, input_, text_embeddings: torch.Tensor, sequence, model_state: dict
     ) -> torch.Tensor:
+        """Concatenates text embeddings with input tensor and passes it through a transformer model.
+        Args:
+        input_ (torch.Tensor): Input tensor.
+        text_embeddings (torch.Tensor): Text embeddings tensor.
+        sequence (Any): Sequence data.
+        model_state (dict): Model state dictionary.
+        Returns:
+        torch.Tensor: Output tensor from the transformer.
+        """
         # Most of the time, one of those two tensors is empty, it allows us
         # to input text or audio embeddings into the model without adding an
         # if-else branch.
@@ -186,6 +220,13 @@ class FlowLMModel(nn.Module):
 
     @classmethod
     def from_pydantic_config(cls, config: FlowLMConfig, latent_dim: int) -> Self:
+        """Initializes a class instance from Pydantic configuration.
+        Args:
+        config (FlowLMConfig): The Pydantic configuration.
+        latent_dim (int): The latent dimension.
+        Returns:
+        Self: An instance of the class initialized with the provided configuration and latent dimension.
+        """
         d_model = config.transformer.d_model
         flow_mlp = SimpleMLPAdaLN.from_pydantic_config(config, latent_dim, d_model)
 

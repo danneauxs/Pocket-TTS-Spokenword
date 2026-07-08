@@ -14,12 +14,25 @@ from pocket_tts.utils.config import FlowLMTransformerConfig
 
 
 class KVCacheResult(NamedTuple):
+    """A NamedTuple for representing the result of a key-value cache operation.
+    Attributes:
+    keys (torch.Tensor): The keys tensor.
+    values (torch.Tensor): The values tensor.
+    positions (torch.Tensor): The positions tensor.
+    """
     keys: torch.Tensor
     values: torch.Tensor
     positions: torch.Tensor
 
     @staticmethod
     def from_kv(keys: torch.Tensor, values: torch.Tensor) -> "KVCacheResult":
+        """Converts key-value tensors into a KVCacheResult object.
+        Args:
+        keys: A tensor of shape (B, H, T, D).
+        values: A tensor of shape (B, H, T).
+        Returns:
+        KVCacheResult containing keys, values, and positions.
+        """
         B, H, T, D = keys.shape
         assert tuple(values.shape[:-1]) == (B, H, T)
         positions = torch.arange(T, device=keys.device, dtype=torch.long)
@@ -29,6 +42,15 @@ class KVCacheResult(NamedTuple):
 def complete(
     cache: torch.Tensor, end_offset: torch.Tensor, k: torch.Tensor, v: torch.Tensor
 ) -> KVCacheResult:
+    """Updates the cache tensor with new key-value pairs.
+    Args:
+    cache (torch.Tensor): The cache to be updated.
+    end_offset (torch.Tensor): The offset for indexing into the cache.
+    k (torch.Tensor): The keys to add to the cache.
+    v (torch.Tensor): The values to add to the cache.
+    Returns:
+    KVCacheResult: The updated cache and new sequence lengths.
+    """
     capacity = cache.shape[3]
     assert k.shape[:-1] == v.shape[:-1], (k.shape, v.shape)
     B, H, T, D = k.shape
@@ -63,7 +85,17 @@ def complete(
 
 
 class MimiStreamingMultiheadAttention(StatefulModule):
+    """A class representing a stateful module for multihead attention in streaming models, utilizing Rotary Position Embeddings.
+    Initialization parameters include embed_dim, num_heads, context, and rope. It defines linear projections for input and output.
+    """
     def __init__(self, embed_dim: int, num_heads: int, context: int, rope: RotaryEmbedding):
+        """Initializes the state dictionary for transformer layers.
+        Args:
+        batch_size (int): The batch size of the input data.
+        sequence_length (int): The length of the input sequence.
+        Returns:
+        dict[str, torch.Tensor]: A dictionary containing initialized tensors for the layer's state.
+        """
         super().__init__()
 
         self.embed_dim = embed_dim
@@ -76,6 +108,13 @@ class MimiStreamingMultiheadAttention(StatefulModule):
         self.in_proj = nn.Linear(embed_dim, out_dim, bias=False)
 
     def init_state(self, batch_size: int, sequence_length: int) -> dict[str, torch.Tensor]:
+        """Initializes state for attention mechanisms.
+        Args:
+        batch_size (int): The number of sequences in a batch.
+        sequence_length (int): The length of each sequence.
+        Returns:
+        dict[str, torch.Tensor]: A dictionary containing 'offset', 'cache', and 'end_offset' tensors.
+        """
         dim_per_head = self.embed_dim // self.num_heads
 
         state = {}
@@ -85,9 +124,23 @@ class MimiStreamingMultiheadAttention(StatefulModule):
         return state
 
     def increment_step(self, state, increment: int = 1):
+        """This function increments the step in a given state by a specified increment value.
+        Args:
+        state (dict): The current state dictionary.
+        increment (int, optional): The amount to increment the offset. Default is 1.
+        Returns: None
+        """
         state["offset"] += increment
 
     def _complete_kv(self, k, v, model_state: dict | None) -> KVCacheResult:
+        """Completes a key-value pair using the provided state or initializes a new KVCacheResult.
+        Args:
+        k (any): The key to complete.
+        v (any): The value to complete.
+        model_state (dict | None): The current model state, if any.
+        Returns:
+        KVCacheResult: The completed key-value cache result.
+        """
         if model_state is None:
             return KVCacheResult.from_kv(k, v)
         else:
@@ -95,6 +148,13 @@ class MimiStreamingMultiheadAttention(StatefulModule):
             return complete(layer_state["cache"], layer_state["end_offset"], k, v)
 
     def forward(self, query: torch.Tensor, model_state: dict | None) -> torch.Tensor:
+        """Applies forward pass to query tensor using model state.
+        Args:
+        query (torch.Tensor): Input query tensor.
+        model_state (dict | None): Optional dictionary containing model state.
+        Returns:
+        torch.Tensor: Result of the forward pass.
+        """
         B, T = query.shape[:2]
 
         if model_state is None:
@@ -132,6 +192,7 @@ class MimiStreamingMultiheadAttention(StatefulModule):
 
 
 class StreamingTransformerLayer(nn.Module):
+    """A class representing a streaming transformer layer that extends `nn.Module`. It includes parameters for model dimensions, attention mechanisms, feedforward layers, and other architectural details relevant to handling streaming data efficiently."""
     def __init__(
         self,
         d_model: int,
@@ -142,6 +203,15 @@ class StreamingTransformerLayer(nn.Module):
         layer_scale: float | None = None,
         attention_kind: str = "mimi",
     ):
+        """Initializes a transformer layer with specified parameters. Args:
+        - d_model (int): The dimension of the model.
+        - num_heads (int): The number of attention heads.
+        - dim_feedforward (int): The dimension of the feedforward network.
+        - context (int | None): Context window size for streaming multi-head attention.
+        - rope (RotaryEmbedding): Rotary embedding module.
+        - layer_scale (float | None): Layer scale factor, default is None.
+        - attention_kind (str): Type of attention mechanism, default is "mimi". Returns: None
+        """
         super().__init__()
         # Redefine self_attn to our streaming multi-head attention
         if attention_kind == "mimi":
@@ -169,24 +239,48 @@ class StreamingTransformerLayer(nn.Module):
             self.layer_scale_2 = LayerScale(d_model, layer_scale)
 
     def _ff_block(self, x: torch.Tensor) -> torch.Tensor:
+        """Performs a single transformer block operation.
+        Args:
+        x (torch.Tensor): Input tensor.
+        model_state (dict | None): Optional model state dictionary.
+        Returns:
+        torch.Tensor: Output tensor after applying the transformer block.
+        """
         x_orig = x
         x = self.norm2(x)
         update = self.linear2(F.gelu(self.linear1(x)))
         return x_orig.to(update) + self.layer_scale_2(update)
 
     def _sa_block(self, x: torch.Tensor, model_state: dict | None) -> torch.Tensor:
+        """```plaintext
+        Applies a streaming transformer layer to the input tensor.
+        Args:
+        x (torch.Tensor): The input tensor.
+        model_state (dict | None): State of the model used in attention mechanism.
+        Returns:
+        torch.Tensor: The output tensor after applying the streaming transformer layer.
+        ```
+        """
         x_orig = x
         x = self.norm1(x)
         update = self.self_attn(x, model_state)
         return x_orig.to(update) + self.layer_scale_1(update)
 
     def forward(self, x: torch.Tensor, model_state: dict | None) -> torch.Tensor:
+        """Applies a forward pass through the StreamingTransformer model.
+        Args:
+        x (torch.Tensor): Input tensor to the transformer.
+        model_state (dict | None): Dictionary containing the model's state.
+        Returns:
+        torch.Tensor: Output tensor after applying the transformer layers.
+        """
         x = self._sa_block(x, model_state)
         x = self._ff_block(x)
         return x
 
 
 class StreamingTransformer(nn.Module):
+    """A transformer model for streaming data, supporting multiple heads and layers with optional layer scaling and custom dimensionality settings."""
     def __init__(
         self,
         d_model: int,
@@ -198,6 +292,19 @@ class StreamingTransformer(nn.Module):
         max_period: float = 10_000.0,
         kind: str = "mimi",
     ):
+        """Initializes a new instance of the class.
+        Args:
+        - d_model (int): The dimensionality of the model.
+        - num_heads (int): Number of attention heads.
+        - num_layers (int): Number of layers in the model.
+        - layer_scale (float | None, optional): Layer scaling factor. Defaults to None.
+        - dim_feedforward (int | list[int], optional): Dimension of feedforward network. Defaults to 2048.
+        - context (int | None, optional): Context size for attention mechanism. Defaults to None.
+        - max_period (float, optional): Maximum period for positional encoding. Defaults to 10_000.0.
+        - kind (str, optional): Kind of the model. Defaults to "mimi".
+        Returns:
+        None
+        """
         super().__init__()
         assert d_model % num_heads == 0
         self.max_period = max_period
@@ -220,6 +327,12 @@ class StreamingTransformer(nn.Module):
 
     @classmethod
     def from_pydantic_config(cls, config: FlowLMTransformerConfig) -> Self:
+        """Create a FlowLMTransformer instance from Pydantic configuration.
+        Args:
+        config (FlowLMTransformerConfig): Configuration object containing transformer parameters.
+        Returns:
+        FlowLMTransformer: A new FlowLMTransformer instance configured according to the provided Pydantic config.
+        """
         dim_feedforward = int(config.d_model * config.hidden_scale)
         return cls(
             d_model=config.d_model,
@@ -231,12 +344,20 @@ class StreamingTransformer(nn.Module):
         )
 
     def forward(self, x: torch.Tensor, model_state: dict | None):
+        """Performs a forward pass through a series of layers.
+        Args:
+        x (torch.Tensor): Input tensor.
+        model_state (dict | None): State dictionary for the model, optional.
+        Returns:
+        torch.Tensor: Output tensor after processing through all layers.
+        """
         for layer in self.layers:
             x = layer(x, model_state)
         return x
 
 
 class ProjectedTransformer(nn.Module):
+    """A class representing a Projected Transformer model, inheriting from nn.Module. It initializes a transformer with specified dimensions and parameters for handling sequential data efficiently."""
     def __init__(
         self,
         input_dimension: int,
@@ -249,6 +370,20 @@ class ProjectedTransformer(nn.Module):
         max_period: float,
         dim_feedforward: int,
     ):
+        """Initialize a transformer model.
+        Args:
+        - input_dimension (int): Dimension of the input data.
+        - output_dimensions (tuple[int, ...]): Dimensions of the output layers.
+        - d_model (int): Dimensionality of the model.
+        - num_heads (int): Number of attention heads in the model.
+        - num_layers (int): Number of transformer layers.
+        - layer_scale (float): Scaling factor for the transformer layers.
+        - context (int): Context size for the transformer.
+        - max_period (float): Maximum period for periodic functions.
+        - dim_feedforward (int): Dimensionality of the feed-forward network in the model.
+        Returns:
+        None
+        """
         super().__init__()
         self.transformer = StreamingTransformer(
             d_model=d_model,
@@ -273,6 +408,7 @@ class ProjectedTransformer(nn.Module):
                 self.output_projs.append(nn.Linear(d_model, output_dimension, bias=False))
 
     def forward(self, x, model_state: dict | None):
+        """Transposes input tensor, applies projection if necessary, processes through transformer, and projects outputs before transposing again. Args: x (Tensor): Input tensor. model_state (dict | None): Optional dictionary containing model state. Returns: List of projected output tensors."""
         x = x.transpose(1, 2)
         if self.input_proj is not None:
             x = self.input_proj(x)

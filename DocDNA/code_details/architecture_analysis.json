@@ -1,0 +1,256 @@
+{
+  "threading_imports": {
+    "count": 3,
+    "files": [
+      "ASR/asr_validator.py",
+      "pocket_tts/main.py",
+      "pocket_tts/models/tts_model.py"
+    ],
+    "examples": [
+      {
+        "file": "ASR/asr_validator.py",
+        "import": "threading",
+        "line": 20
+      },
+      {
+        "file": "pocket_tts/main.py",
+        "import": "threading",
+        "line": 5
+      },
+      {
+        "file": "pocket_tts/models/tts_model.py",
+        "import": "threading",
+        "line": 6
+      }
+    ]
+  },
+  "threading_usage": {
+    "count": 6,
+    "files": [
+      "ASR/asr_validator.py",
+      "pocket_tts/main.py",
+      "pocket_tts/models/tts_model.py"
+    ],
+    "examples": [
+      {
+        "file": "ASR/asr_validator.py",
+        "pattern": "ThreadPoolExecutor",
+        "line": 1045
+      },
+      {
+        "file": "ASR/asr_validator.py",
+        "pattern": "threading.Thread",
+        "line": 1274
+      },
+      {
+        "file": "ASR/asr_validator.py",
+        "pattern": "threading.Thread",
+        "line": 1445
+      }
+    ]
+  },
+  "gui_frameworks": {
+    "count": 1,
+    "files": [
+      "ASR/asr_validator.py"
+    ],
+    "examples": [
+      {
+        "file": "ASR/asr_validator.py",
+        "framework": "tkinter",
+        "line": 11
+      }
+    ]
+  },
+  "gui_threading": {
+    "count": 4,
+    "files": [
+      "ASR/asr_validator.py",
+      "pocket_tts/gui/main_window.py"
+    ],
+    "examples": [
+      {
+        "file": "ASR/asr_validator.py",
+        "pattern": "GUI thread delegation",
+        "line": 1425,
+        "method": "self.root.after"
+      },
+      {
+        "file": "pocket_tts/gui/main_window.py",
+        "pattern": "GUI thread delegation",
+        "line": 260,
+        "method": "self.frames_after_eos_spin.setRange"
+      },
+      {
+        "file": "pocket_tts/gui/main_window.py",
+        "pattern": "GUI thread delegation",
+        "line": 266,
+        "method": "self.frames_after_eos_spin.setValue"
+      }
+    ]
+  },
+  "error_handling": {
+    "count": 109,
+    "files": [
+      "pocket_tts/audiobook/generator (copy).py",
+      "pocket_tts/main.py",
+      "pocket_tts/preprocessing/emotion_analyzer.py",
+      "pocket_tts/audio/m4b_converter.py",
+      "ASR/asr_validator.py",
+      "pocket_tts/config/__init__.py",
+      "pocket_tts/preprocessing/structure_detector.py",
+      "pocket_tts/test_gui.py",
+      "pocket_tts/models/tts_model.py",
+      "pocket_tts/data/voice_converter.py",
+      "pocket_tts/preprocessing/parameter_mapper.py",
+      "pocket_tts/gui/main_window.py",
+      "pocket_tts/gui/setup_window.py",
+      "pocket_tts/utils/download_manager.py",
+      "pocket_tts/gui/regenerate_tab.py",
+      "pocket_tts/__init__.py",
+      "pocket_tts/preprocessing/schema.py",
+      "pocket_tts/audiobook/generator.py"
+    ],
+    "examples": [
+      {
+        "file": "ASR/asr_validator.py",
+        "exceptions": [
+          "<ast.Tuple object at 0x73b255b91450>"
+        ],
+        "has_finally": true,
+        "line": 473
+      },
+      {
+        "file": "ASR/asr_validator.py",
+        "exceptions": [
+          "IOError"
+        ],
+        "has_finally": true,
+        "line": 490
+      },
+      {
+        "file": "ASR/asr_validator.py",
+        "exceptions": [
+          "Exception"
+        ],
+        "has_finally": true,
+        "line": 504
+      }
+    ]
+  },
+  "gui_error_display": {
+    "count": 3,
+    "files": [
+      "ASR/asr_validator.py"
+    ],
+    "examples": [
+      {
+        "file": "ASR/asr_validator.py",
+        "method": "messagebox.showwarning",
+        "line": 1264
+      },
+      {
+        "file": "ASR/asr_validator.py",
+        "method": "messagebox.showerror",
+        "line": 1429
+      },
+      {
+        "file": "ASR/asr_validator.py",
+        "method": "messagebox.showerror",
+        "line": 1436
+      }
+    ]
+  },
+  "model_loading": {
+    "count": 25,
+    "files": [
+      "pocket_tts/audiobook/generator (copy).py",
+      "pocket_tts/main.py",
+      "ASR/asr_validator.py",
+      "pocket_tts/modules/seanet.py",
+      "pocket_tts/models/tts_model.py",
+      "pocket_tts/gui/regenerate_tab.py",
+      "pocket_tts/utils/config.py",
+      "pocket_tts/audiobook/generator.py"
+    ],
+    "examples": [
+      {
+        "file": "ASR/asr_validator.py",
+        "variable": "asr_model",
+        "loader": "WhisperModel",
+        "line": 583
+      },
+      {
+        "file": "ASR/asr_validator.py",
+        "variable": "asr_model",
+        "loader": "WhisperModel",
+        "line": 593
+      },
+      {
+        "file": "pocket_tts/audiobook/generator (copy).py",
+        "variable": "model_load_start",
+        "loader": "time.time",
+        "line": 970
+      }
+    ]
+  },
+  "double_check_locking": {
+    "count": 2,
+    "files": [
+      "ASR/asr_validator.py",
+      "pocket_tts/gui/main_window.py"
+    ],
+    "examples": [
+      {
+        "file": "ASR/asr_validator.py",
+        "pattern": "double-check locking"
+      },
+      {
+        "file": "pocket_tts/gui/main_window.py",
+        "pattern": "double-check locking"
+      }
+    ]
+  },
+  "global_models": {
+    "count": 2,
+    "files": [
+      "pocket_tts/main.py"
+    ],
+    "examples": [
+      {
+        "file": "pocket_tts/main.py",
+        "variable": "tts_model",
+        "line": 186
+      },
+      {
+        "file": "pocket_tts/main.py",
+        "variable": "global_model_state",
+        "line": 186
+      }
+    ]
+  },
+  "async_functions": {
+    "count": 3,
+    "files": [
+      "pocket_tts/main.py",
+      "pocket_tts/utils/download_manager.py"
+    ],
+    "examples": [
+      {
+        "file": "pocket_tts/main.py",
+        "function": "root",
+        "line": 63
+      },
+      {
+        "file": "pocket_tts/main.py",
+        "function": "health",
+        "line": 70
+      },
+      {
+        "file": "pocket_tts/utils/download_manager.py",
+        "function": "_download_async",
+        "line": 43
+      }
+    ]
+  }
+}

@@ -48,6 +48,7 @@ def test_gui_imports():
         return False
 
 def main():
+    """Main entry point for the audiobook generator. Prints a welcome message and checks if GUI components are ready for testing. If not, it exits with an error. Args: None Returns: None"""
     """Main entry point."""
     print("Audiobook Generator GUI (Headless Test Mode)")
     print("=" * 50)

@@ -1,0 +1,18 @@
+# Code Patterns
+
+## Classes (73)
+- `FileLikeToQueue` in pocket_tts/main.py:103 (4 methods)
+- `ASRApp` in ASR/asr_validator.py:1123 (14 methods)
+- `TextWidgetHandler` in ASR/asr_validator.py:1398 (2 methods)
+- `ConfigManager` in pocket_tts/config/__init__.py:20 (5 methods)
+- `AudiobookGenerator` in pocket_tts/audiobook/generator.py:40 (19 methods)
+- `GenerationThread` in pocket_tts/gui/main_window.py:985 (3 methods)
+- `RegenerateTab` in pocket_tts/gui/regenerate_tab.py:29 (31 methods)
+- `SetupWindow` in pocket_tts/gui/setup_window.py:10 (17 methods)
+- `WavToM4bConverter` in pocket_tts/audio/m4b_converter.py:17 (11 methods)
+- `DownloadError` in pocket_tts/utils/download_manager.py:15 (0 methods)
+- `DownloadWorker` in pocket_tts/utils/download_manager.py:19 (4 methods)
+- `DownloadManager` in pocket_tts/utils/download_manager.py:113 (6 methods)
+- `PathManager` in pocket_tts/utils/path_manager.py:5 (7 methods)
+- `display_execution_time` in pocket_tts/utils/utils.py:75 (3 methods)
+- `StrictModel` in pocket_tts/utils/config.py:9 (0 methods)

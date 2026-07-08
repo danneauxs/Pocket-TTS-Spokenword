@@ -61,6 +61,26 @@ web_app.add_middleware(
 
 @web_app.get("/")
 async def root():
+    """Serve the frontend.
+    Args:
+    None
+    Returns:
+    FileResponse: The response containing the static index.html file.
+    ---
+    Provides health information for the web application.
+    Args:
+    None
+    Returns:
+    dict: A dictionary indicating that the application is healthy.
+    ---
+    Allows writing to the StreamingResponse as if it were a file.
+    Args:
+    queue (asyncio.Queue): The queue to write data to.
+    text_to_generate (str): The text to generate and write.
+    model_state (dict): The current state of the model.
+    Returns:
+    None
+    """
     """Serve the frontend."""
     static_path = Path(__file__).parent / "static" / "index.html"
     return FileResponse(static_path)
@@ -68,6 +88,12 @@ async def root():
 
 @web_app.get("/health")
 async def health():
+    """Returns a dictionary indicating the health status of the system.
+    Args:
+    None
+    Returns:
+    dict: A dictionary containing the key "status" with the value "healthy".
+    """
     return {"status": "healthy"}
 
 
@@ -75,16 +101,59 @@ def write_to_queue(queue, text_to_generate, model_state):
     """Allows writing to the StreamingResponse as if it were a file."""
 
     class FileLikeToQueue(io.IOBase):
+        """A file-like object adapter for writing data to a queue."""
         def __init__(self, queue):
+            """Initialize a writer for handling data in a queue.
+            Args:
+            queue (Queue): The queue to write data into.
+            Returns: None
+            Methods:
+            - write(data): Write data into the queue.
+            - flush(): Placeholder for flushing operations.
+            - close(): Signal completion by writing None to the queue.
+            """
             self.queue = queue
 
         def write(self, data):
+            """Writes data to a queue.
+            Args:
+            data (any): Data to write to the queue.
+            Returns: None
+            Closes the queue by sending a None value.
+            Args: None
+            Returns: None
+            Transfers audio chunks from an iterable to a queue for processing.
+            Args:
+            FileLikeToQueue (object): A file-like object that writes to a queue.
+            audio_chunks (iterable): An iterable of audio data chunks.
+            sample_rate (int): The sample rate of the audio data.
+            Returns: None
+            """
             self.queue.put(data)
 
         def flush(self):
+            """Flushes the current state.
+            Args:
+            None Returns:
+            None
+            Closes the connection and puts None into the queue. Args:
+            None Returns:
+            None
+            Generates audio data using a TTS model stream.
+            Args:
+            text_to_generate (str): The text to generate audio for.
+            model_state (dict): The current state of the model.
+            Returns:
+            Queue: A queue containing generated audio chunks.
+            """
             pass
 
         def close(self):
+            """Closes the queue associated with an audio stream.
+            Args:
+            - None
+            Returns: None
+            """
             self.queue.put(None)
 
     audio_chunks = tts_model.generate_audio_stream(
@@ -94,6 +163,13 @@ def write_to_queue(queue, text_to_generate, model_state):
 
 
 def generate_data_with_state(text_to_generate: str, model_state: dict):
+    """Generates data from a model state while handling threading and queuing.
+    Args:
+    text_to_generate (str): The text to generate.
+    model_state (dict): The current state of the model.
+    Returns:
+    generator: Yields generated data as it becomes available.
+    """
     queue = Queue()
 
     # Run your function in a thread
@@ -368,6 +444,13 @@ def audiobook(
 
         # Create a generator that processes all chunks
         def generate_all_chunks() -> Iterator[torch.Tensor]:
+            """Generates all chunks as PyTorch tensors.
+            Args:
+            chunks_to_process (Iterable[dict]): An iterable of dictionaries representing chunks.
+            start_index (int): The starting index for chunk numbering.
+            Returns:
+            Iterator[torch.Tensor]: An iterator yielding processed chunks as PyTorch tensors.
+            """
             total_duration = 0.0
             start_time = time.time()
             elapsed = 0.0

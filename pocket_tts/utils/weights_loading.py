@@ -4,6 +4,12 @@ import safetensors
 
 
 def get_flow_lm_state_dict(path: Path) -> dict:
+    """Load a flow language model state dictionary from a file.
+    Args:
+    path (Path): The path to the state dictionary file.
+    Returns:
+    dict: A dictionary containing the loaded model weights, excluding lookup table weights and specific conditioner weights.
+    """
     state_dict = {}
     with safetensors.safe_open(path, framework="pt", device="cpu") as f:
         for key in f.keys():
@@ -24,6 +30,10 @@ def get_flow_lm_state_dict(path: Path) -> dict:
 
 
 def get_mimi_state_dict(path: Path) -> dict:
+    """Returns a dictionary of model states from a given path, excluding specific VQ keys.
+    Args:
+    - path (Path): The file path to the model state dictionary.
+    """
     state_dict = {}
     with safetensors.safe_open(path, framework="pt", device="cpu") as f:
         for key in f.keys():

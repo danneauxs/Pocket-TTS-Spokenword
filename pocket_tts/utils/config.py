@@ -7,17 +7,29 @@ from pydantic import BaseModel, ConfigDict
 
 
 class StrictModel(BaseModel):
+    """Represents a configuration model that strictly forbids extra fields and includes specific parameters for flow-based models."""
     model_config = ConfigDict(extra="forbid")
 
 
 # Flow configuration
 class FlowConfig(StrictModel):
+    """Base class for model configurations that inherit from StrictModel.
+    Classes:
+    FlowConfig: Configuration parameters for a flow-based model.
+    FlowLMTransformerConfig: Specific configuration for a transformer used in FlowLM models.
+    LookupTable: Represents a lookup table for mapping keys to values.
+    """
     dim: int
     depth: int
 
 
 # Transformer configuration for FlowLM
 class FlowLMTransformerConfig(StrictModel):
+    """Class representing configuration for a FlowLMTransformer.
+    Attributes include hidden scale, max period, model dimensions, number of heads, and layers.
+    Class representing a lookup table for tokenization.
+    Includes dimensions, number of bins, tokenizer type, and path to tokenizer file.
+    """
     hidden_scale: int
     max_period: int
     d_model: int
@@ -26,6 +38,12 @@ class FlowLMTransformerConfig(StrictModel):
 
 
 class LookupTable(StrictModel):
+    """```python
+    Class representing a lookup table with dimensions and bin settings.
+    Used to store token information for natural language processing tasks.
+    Configuration model for YAML config files containing data type and nested flow configuration.
+    ```
+    """
     dim: int
     n_bins: int
     tokenizer: str
@@ -49,6 +67,7 @@ class FlowLMConfig(StrictModel):
 
 # SEANet configuration
 class SEANetConfig(StrictModel):
+    """Class representing SEANet model configuration parameters."""
     dimension: int
     channels: int
     n_filters: int
@@ -64,6 +83,9 @@ class SEANetConfig(StrictModel):
 
 # Transformer configuration for Mimi
 class MimiTransformerConfig(StrictModel):
+    """MimiTransformerConfig represents the configuration for a transformer model, detailing its architecture parameters.
+    QuantizerConfig specifies the configuration for quantization, including the target dimensionality.
+    """
     d_model: int
     input_dimension: int
     output_dimensions: tuple[int, ...]
@@ -77,6 +99,13 @@ class MimiTransformerConfig(StrictModel):
 
 # Quantizer configuration
 class QuantizerConfig(StrictModel):
+    """```python
+    Class representing configuration parameters for quantization.
+    Attributes:
+    dimension (int): The input dimension.
+    output_dimension (int): The output dimension after quantization.
+    ```
+    """
     dimension: int
     output_dimension: int
 
@@ -104,6 +133,9 @@ class MimiConfig(StrictModel):
 
 
 class Config(StrictModel):
+    """Class representing configuration settings for a model.
+    Attributes include flow_lm, mimi, weights_path, and weights_path_without_voice_cloning.
+    """
     flow_lm: FlowLMConfig
     mimi: MimiConfig
     weights_path: str | None = None
@@ -111,6 +143,12 @@ class Config(StrictModel):
 
 
 def load_config(yaml_path: str | Path) -> Config:
+    """Loads a configuration from a YAML file.
+    Args:
+    - yaml_path (str | Path): The path to the YAML configuration file.
+    Returns:
+    - Config: A Config object loaded from the YAML file.
+    """
     yaml_path = Path(yaml_path)
 
     if not yaml_path.exists():

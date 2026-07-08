@@ -54,6 +54,7 @@ class AudiobookGenerator(QMainWindow):
     SETTINGS_FILE = Path.home() / ".pocket_tts_gui_config.json"
 
     def __init__(self):
+        """Initializes a PocketTTS application instance. Sets up logging, configuration, and GUI components. Loads previous directory settings or uses defaults. Initializes UI and sets up connections."""
         super().__init__()
         self.logger = logging.getLogger(__name__)
         self.config = ConfigManager.load_config("pocket_tts/config/default_config.yaml")
@@ -988,6 +989,14 @@ class GenerationThread(QThread):
     finished = Signal(dict)  # Changed to emit result dict
 
     def __init__(self, chunks, params, config=None, max_workers_override=None):
+        """Initialize a thread for audiobook generation.
+        Args:
+        chunks (list): List of audio chunks.
+        params (dict): Generation parameters.
+        config (Config, optional): Configuration object.
+        max_workers_override (int, optional): Override for maximum workers.
+        Returns: None
+        """
         super().__init__()
         self.chunks = chunks
         self.params = params
@@ -1046,6 +1055,12 @@ class GenerationThread(QThread):
 
             # Progress callback
             def progress_callback(progress_data):
+                """Emits progress data during audiobook generation.
+                Args:
+                progress_data: Data representing the current progress.
+                Returns:
+                None
+                """
                 self.progress.emit(progress_data)
 
             # Generate audiobook
@@ -1065,6 +1080,12 @@ class GenerationThread(QThread):
             self.finished.emit(error_result)
 
     def stop(self):
+        """Stop generation.
+        Args:
+        None
+        Returns:
+        None
+        """
         """Stop generation."""
         if self.generator:
             self.generator.cancel_generation()

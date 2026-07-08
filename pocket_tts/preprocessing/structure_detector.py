@@ -31,6 +31,12 @@ class StructureDetector:
     SENTENCE_ENDERS = r'[.!?]+'
 
     def __init__(self):
+        """Perform complete structural analysis of input text.
+        Args:
+        text (str): Raw input text
+        Returns:
+        TextStructure: Complete analysis results
+        """
         self.chapter_regexes = [re.compile(pattern, re.IGNORECASE | re.MULTILINE)
                                for pattern in self.CHAPTER_PATTERNS]
 

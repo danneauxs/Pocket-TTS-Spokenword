@@ -1,0 +1,14 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "docdna-Pocket-TTS-Spokenword": {
+      "type": "local",
+      "command": [
+        "/usr/bin/python3",
+        "/home/danno/MyApps/DocDNA_Tool/docdna_query.py",
+        "/media/danno/Team2/Pocket-TTS_github/Pocket-TTS-Spokenword",
+        "--mcp"
+      ]
+    }
+  }
+}

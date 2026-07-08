@@ -1,0 +1,21 @@
+{
+  "generated_at": "2026-06-18T13:37:25.773819",
+  "generator_version": "docdna_v3.0",
+  "project_root": "/media/danno/Team2/Pocket-TTS_github/Pocket-TTS-Spokenword",
+  "architecture": "funnel_first",
+  "tiers": [
+    "ai_instant",
+    "developer_focus",
+    "code_details"
+  ],
+  "enhancement": "project_specific_ast",
+  "validation": "file_reference_checked",
+  "stats": {
+    "files": 56,
+    "functions": 304,
+    "classes": 73,
+    "call_graph_edges": 1937,
+    "faqs": 30,
+    "insights": 4
+  }
+}

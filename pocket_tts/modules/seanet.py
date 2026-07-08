@@ -5,6 +5,7 @@ from .conv import StreamingConv1d, StreamingConvTranspose1d
 
 
 class SEANetResnetBlock(nn.Module):
+    """A custom residual block for SEANet using a ResNet architecture with variable kernel sizes and dilations."""
     def __init__(
         self,
         dim: int,
@@ -13,6 +14,16 @@ class SEANetResnetBlock(nn.Module):
         pad_mode: str = "reflect",
         compress: int = 2,
     ):
+        """Initializes a custom module with specified dimensions and kernel parameters.
+        Args:
+        dim: The input dimension.
+        kernel_sizes: List of kernel sizes for each convolutional block.
+        dilations: List of dilation rates for each convolutional block.
+        pad_mode: Padding mode to use, default is "reflect".
+        compress: Compression factor for hidden layer size.
+        Returns:
+        None
+        """
         super().__init__()
         assert len(kernel_sizes) == len(dilations), (
             "Number of kernel sizes should match number of dilations"
@@ -31,6 +42,13 @@ class SEANetResnetBlock(nn.Module):
         self.block = block
 
     def forward(self, x, model_state: dict | None):
+        """Computes the forward pass of an SEANet encoder.
+        Args:
+        x (Tensor): Input tensor.
+        model_state (dict | None): Optional dictionary containing model state for StreamingConv1d layers.
+        Returns:
+        Tensor: Output tensor after processing through the network.
+        """
         v = x
         for layer in self.block:
             if isinstance(layer, StreamingConv1d):
@@ -42,6 +60,7 @@ class SEANetResnetBlock(nn.Module):
 
 
 class SEANetEncoder(nn.Module):
+    """A class for constructing a SEANetEncoder neural network module."""
     def __init__(
         self,
         channels: int = 1,
@@ -56,6 +75,22 @@ class SEANetEncoder(nn.Module):
         pad_mode: str = "reflect",
         compress: int = 2,
     ):
+        """Initializes a neural network layer with specified parameters.
+        Args:
+        channels (int): Number of input and output channels.
+        dimension (int): Dimensionality of the input and output features.
+        n_filters (int): Number of filters in convolutional layers.
+        n_residual_layers (int): Number of residual blocks.
+        ratios (list[int]): Ratios for different filter sizes.
+        kernel_size (int): Size of the main convolutional kernel.
+        last_kernel_size (int): Size of the final convolutional kernel.
+        residual_kernel_size (int): Size of the kernels in residual blocks.
+        dilation_base (int): Base value for dilation rates.
+        pad_mode (str): Padding mode to use during convolution.
+        compress (int): Compression factor for output channels.
+        Returns:
+        None
+        """
         super().__init__()
         self.channels = channels
         self.dimension = dimension
@@ -105,6 +140,13 @@ class SEANetEncoder(nn.Module):
         self.model = model
 
     def forward(self, x, model_state: dict | None):
+        """Applies a sequence of layers to the input tensor `x`. If a layer is an instance of StreamingConv1d or SEANetResnetBlock, it passes the model state to the layer.
+        Args:
+        x (Tensor): Input tensor.
+        model_state (dict | None): Dictionary containing model state. Optional.
+        Returns:
+        Tensor: Output tensor after passing through all layers.
+        """
         for layer in self.model:
             if isinstance(layer, (StreamingConv1d, SEANetResnetBlock)):
                 x = layer(x, model_state)
@@ -114,6 +156,7 @@ class SEANetEncoder(nn.Module):
 
 
 class SEANetDecoder(nn.Module):
+    """SEANetDecoder class implements a decoder for SEANet architecture, designed to process input data through multiple residual layers and filters to reconstruct output."""
     def __init__(
         self,
         channels: int = 1,
@@ -128,6 +171,22 @@ class SEANetDecoder(nn.Module):
         pad_mode: str = "reflect",
         compress: int = 2,
     ):
+        """Initialize a neural network model.
+        Args:
+        channels (int): Number of input channels.
+        dimension (int): Dimension of each channel.
+        n_filters (int): Number of filters in convolutional layers.
+        n_residual_layers (int): Number of residual layers.
+        ratios (list[int]): Ratios for different parts of the model.
+        kernel_size (int): Size of the convolution kernel.
+        last_kernel_size (int): Size of the final convolution kernel.
+        residual_kernel_size (int): Size of the residual block kernel.
+        dilation_base (int): Base for dilation in convolution layers.
+        pad_mode (str): Padding mode, default is 'reflect'.
+        compress (int): Compression factor for some layers.
+        Returns:
+        None
+        """
         super().__init__()
         self.dimension = dimension
         self.channels = channels
@@ -172,6 +231,7 @@ class SEANetDecoder(nn.Module):
         self.model = model
 
     def forward(self, z, model_state: dict | None):
+        """Applies a sequence of layers to input `z`, optionally using state from `model_state`. Args: z (tensor): Input tensor. model_state (dict | None): Optional dictionary containing layer-specific state. Returns: Transformed output tensor after passing through all layers."""
         for layer in self.model:
             if isinstance(layer, (StreamingConvTranspose1d, SEANetResnetBlock, StreamingConv1d)):
                 z = layer(z, model_state)
