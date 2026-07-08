@@ -39,6 +39,7 @@ Navigate to the https://kyutai.org/tts to try basic TTS functionality directly i
 ## Audiobook Generation Features
 
 # Installation
+
 Just a quick note.  I don't have time to properly update this.
 I've included BAT files for installing and running the program under Windows.
 I have a limited test environment for Windows but I was able to get this running without WSL.
@@ -47,11 +48,13 @@ How to install:
 This project uses uv, an extremely fast Python package manager.
 
 1. Install uv:
+   
    - **Linux & Windows (WSL)**: Open your terminal and run:
      ```bash
      curl -LsSf https://astral.sh/uv/install.sh | sh
      ```
      Note: After installation, you may need to restart your terminal or run `source $HOME/.local/bin/env` to add uv to your PATH.
+   
    - **Windows (PowerShell)**: If you are using standard Windows PowerShell (not WSL), run:
      ```powershell
      powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
@@ -70,9 +73,12 @@ install.sh
 #### Option 1: Pre-built Installer (Recommended)
 
 Download `Pocket-TTS-Setup.exe` from the [GitHub Releases](https://github.com/DNXS-Spokenword/Pocket-TTS-Spokenword/releases) and run it. The installer will:
+
 - Extract to `%LOCALAPPDATA%\Pocket TTS`
 - Create Start Menu shortcuts
 - On first launch, automatically download and install dependencies (~2-3 GB)
+
+NOTE****<mark>:  You cannot just click on the EXE to download it.  Best way to get it if you're not going to clone the repo is click on the green CODE button. then select download Zip.  The EXE will be in that zip file.</mark>****
 
 #### Option 2: Build Installer from Source (on Linux)
 
@@ -86,6 +92,7 @@ bash build_linux.sh
 ```
 
 **Requirements:**
+
 - Linux host with `wine64` installed: `sudo apt install wine64`
 - `wget` and `unzip` (usually pre-installed)
 - ~4 GB disk space
