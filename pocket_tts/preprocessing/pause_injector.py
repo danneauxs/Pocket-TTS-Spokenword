@@ -18,6 +18,11 @@ PAUSE_RE = re.compile(r"\[([\d.]+)s\]")
 _PUNCT_ORDER = ["...", "--", ";", ":", ".", "!", "?", ","]
 
 
+def has_inline_pause_markers(text: str) -> bool:
+    """Check if text contains [Xs] pause markers."""
+    return PAUSE_RE.search(text) is not None
+
+
 def inject_pauses_for_punctuation(text: str, pause_map: Dict[str, float]) -> str:
     """Inject pauses at specified punctuation in text.
     Args:
@@ -33,6 +38,11 @@ def inject_pauses_for_punctuation(text: str, pause_map: Dict[str, float]) -> str
             marker = f"[{seconds:.2f}s]"
             result = re.sub(re.escape(punct) + r'(?!\w)', marker, result)
     return result
+
+
+def has_inline_pause_markers(text: str) -> bool:
+    """Check if text contains [Xs] pause markers."""
+    return bool(PAUSE_RE.search(text))
 
 
 def parse_text_with_pauses(raw: str):

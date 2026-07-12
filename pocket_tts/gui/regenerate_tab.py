@@ -22,6 +22,7 @@ from qtpy.QtCore import Qt
 from pocket_tts.preprocessing.emotion_analyzer import EmotionAnalyzer
 from pocket_tts.models.tts_model import TTSModel
 from pocket_tts.data.audio import audio_read
+from pocket_tts.preprocessing.pause_injector import has_inline_pause_markers
 
 logger = logging.getLogger(__name__)
 
@@ -821,11 +822,19 @@ class RegenerateTab(QWidget):
             
             logger.debug(f"Regenerating with frames_after_eos={frames_after_eos}")
 
-            audio = model.generate_audio(
-                voice_state,          # First positional: model_state
-                edited_text,          # Second positional: text_to_generate
-                frames_after_eos=frames_after_eos  # Only valid keyword argument
-            )
+            if has_inline_pause_markers(edited_text):
+                from pocket_tts.preprocessing.pause_injector import generate_audio_with_pauses
+                audio, _ = generate_audio_with_pauses(
+                    model,
+                    voice_state,
+                    edited_text
+                )
+            else:
+                audio = model.generate_audio(
+                    voice_state,          # First positional: model_state
+                    edited_text,          # Second positional: text_to_generate
+                    frames_after_eos=frames_after_eos  # Only valid keyword argument
+                )
 
             # Save to temp file
             chunk_idx = self.current_chunk_idx

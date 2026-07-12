@@ -3,6 +3,7 @@ Audiobook generation engine with progress tracking and resume capability.
 """
 
 import os
+import sys
 import time
 import json
 import logging
@@ -36,6 +37,33 @@ except ImportError:
     import torch
 
 logger = logging.getLogger(__name__)
+
+_ASR_VENV_RELATIVE_PATHS = ("ASR/venv/bin/python", "ASR/venv/Scripts/python.exe")
+
+
+def _resolve_asr_executable(configured_path: str) -> str:
+    """Adapt the configured ASR interpreter path to the current platform.
+
+    The standard relative venv layout differs by platform (Linux/Mac:
+    venv/bin/python, Windows: venv/Scripts/python.exe). If the configured
+    path is exactly one of those two known relative forms, swap it for
+    whichever matches the platform actually running - this is what makes a
+    single default_config.yaml value work on both without per-OS config
+    files. A custom absolute path the user explicitly set is returned
+    unchanged.
+
+    Args:
+        configured_path: The executable_path value from config, or the
+            in-code fallback default.
+
+    Returns:
+        A path string appropriate for the current platform.
+    """
+    normalized = str(configured_path).replace("\\", "/")
+    if normalized in _ASR_VENV_RELATIVE_PATHS:
+        return "ASR/venv/Scripts/python.exe" if sys.platform == "win32" else "ASR/venv/bin/python"
+    return configured_path
+
 
 class AudiobookGenerator:
     """Generates audiobooks from processed text chunks with progress tracking."""
@@ -401,7 +429,9 @@ class AudiobookGenerator:
             asr_enabled = asr_config.get('enabled', False)
 
             if asr_enabled and save_dataset_chunks and dataset_paths:
-                asr_exe = asr_config.get('executable_path', 'ASR/venv/bin/python')
+                asr_exe = _resolve_asr_executable(
+                    asr_config.get('executable_path', 'ASR/venv/bin/python')
+                )
                 asr_script = 'ASR/asr_validator.py'
                 monitor_folder = str(Path(dataset_paths['audio_chunks_dir']))
                 asr_failure_log = str(Path(dataset_paths['tts_dir']) / 'asr_failures.json')
@@ -838,6 +868,8 @@ class AudiobookGenerator:
 
     def _generate_chunk_audio(self, chunk: ChunkMetadata, voice_state):
         """Generate audio for a single chunk."""
+        from ..preprocessing.pause_injector import has_inline_pause_markers
+
         try:
             logger.debug(f"_generate_chunk_audio called for chunk: '{chunk.text[:30]}...'")
 
@@ -885,6 +917,18 @@ class AudiobookGenerator:
                     self.tts_model,
                     voice_state,
                     injected_text
+                )
+                chunk.pause_events = pauses if pauses else None
+            elif has_inline_pause_markers(chunk.text):
+                logger.debug("Inline pause markers detected, generating audio with pauses...")
+                from ..preprocessing.pause_injector import (
+                    has_inline_pause_markers,
+                    generate_audio_with_pauses
+                )
+                audio, pauses = generate_audio_with_pauses(
+                    self.tts_model,
+                    voice_state,
+                    chunk.text
                 )
                 chunk.pause_events = pauses if pauses else None
             else:
@@ -981,14 +1025,20 @@ class AudiobookGenerator:
             audio_np = audio.cpu().numpy()
             scipy.io.wavfile.write(input_wav, sample_rate, audio_np.astype(np.float32))
 
-            # Run ffmpeg with atempo filter
+            # Run ffmpeg with atempo filter. POCKET_TTS_FFMPEG_PATH is set by
+            # the Windows launcher when a private (non-PATH) copy was
+            # downloaded, since ffmpeg is never bundled or on PATH by default.
             cmd = [
-                "ffmpeg", "-y", "-i", input_wav,
+                os.environ.get("POCKET_TTS_FFMPEG_PATH", "ffmpeg"),
+                "-y", "-i", input_wav,
                 "-filter:a", f"atempo={speed_factor}",
                 "-ar", str(sample_rate),
                 "-f", "wav", output_wav
             ]
-            result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+            result = subprocess.run(
+                cmd, capture_output=True, text=True, timeout=30,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            )
             if result.returncode != 0:
                 logger.warning(f"ffmpeg atempo failed: {result.stderr}")
                 return audio  # Return original on failure
@@ -1370,6 +1420,7 @@ class AudiobookGenerator:
                 asr_exe = self.config.asr_quality_control.executable_path
             elif isinstance(self.config, dict) and 'asr_quality_control' in self.config:
                 asr_exe = self.config['asr_quality_control'].get('executable_path', 'ASR/venv/bin/python')
+            asr_exe = _resolve_asr_executable(asr_exe)
 
             asr_script = project_root / 'ASR' / 'asr_validator.py'
 
@@ -1517,14 +1568,20 @@ def _ffmpeg_atempo_standalone(tts_model, audio, speed_factor: float):
         audio_np = audio.cpu().numpy()
         scipy.io.wavfile.write(input_wav, sample_rate, audio_np.astype(np.float32))
 
-        # Run ffmpeg with atempo filter
+        # Run ffmpeg with atempo filter. POCKET_TTS_FFMPEG_PATH is set by
+        # the Windows launcher when a private (non-PATH) copy was
+        # downloaded, since ffmpeg is never bundled or on PATH by default.
         cmd = [
-            "ffmpeg", "-y", "-i", input_wav,
+            os.environ.get("POCKET_TTS_FFMPEG_PATH", "ffmpeg"),
+            "-y", "-i", input_wav,
             "-filter:a", f"atempo={speed_factor}",
             "-ar", str(sample_rate),
             "-f", "wav", output_wav
         ]
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        result = subprocess.run(
+            cmd, capture_output=True, text=True, timeout=30,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        )
         if result.returncode != 0:
             logger.warning(f"ffmpeg atempo failed: {result.stderr}")
             return audio  # Return original on failure
@@ -1559,6 +1616,8 @@ def _queue_worker(chunk_queue: Any, voice_path: str, output_dir: str, result_que
     from pathlib import Path
     import tempfile
     import traceback
+
+    from pocket_tts.preprocessing.pause_injector import has_inline_pause_markers
 
     worker_logger = logging.getLogger("pocket_tts.audiobook.generator")
 
@@ -1639,6 +1698,12 @@ def _queue_worker(chunk_queue: Any, voice_path: str, output_dir: str, result_que
                     )
                     injected_text = inject_pauses_for_punctuation(chunk.text, pause_durations)
                     audio, _ = generate_audio_with_pauses(tts_model, voice_state, injected_text)
+                elif has_inline_pause_markers(chunk.text):
+                    from pocket_tts.preprocessing.pause_injector import (
+                        has_inline_pause_markers,
+                        generate_audio_with_pauses
+                    )
+                    audio, _ = generate_audio_with_pauses(tts_model, voice_state, chunk.text)
                 else:
                     audio = tts_model.generate_audio(
                         voice_state,
