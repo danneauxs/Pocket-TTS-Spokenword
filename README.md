@@ -1,4 +1,5 @@
 # DNXS-Spokenword Pocket-TTS
+NEW GPU version 50x faster https://github.com/danneauxs/DNXS-Spokenword-Pocket-TTS-GPU
 
 # Emotion-Driven Audiobook Generator
 
